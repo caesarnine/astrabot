@@ -1,0 +1,25 @@
+[app]
+db_path = ".astra/astra.db"
+tui_context_id = "local"
+open_browser_on_login = true
+
+[codex]
+bin = "codex"
+model = "gpt-5.4"
+personality = "friendly"
+
+# Optional thread-level instruction overrides.
+# base_instructions = """
+# You are a focused assistant for my Telegram bridge.
+# """
+#
+# developer_instructions = """
+# Keep responses concise and ask at most one clarifying question when blocked.
+# """
+
+[telegram]
+bot_token = ""
+
+# After running /whoami in Telegram, set this to your numeric user_id to lock
+# the bot down to your account.
+# allowed_user_id = 123456789

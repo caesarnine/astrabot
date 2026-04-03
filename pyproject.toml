@@ -1,0 +1,20 @@
+[project]
+name = "astra"
+version = "0.1.0"
+description = "A simple Telegram and TUI bridge for Codex app-server."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "python-telegram-bot>=22.0,<23.0",
+]
+
+[project.scripts]
+astra = "astra.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+

@@ -1,0 +1,2 @@
+"""Frontend adapters for Astra."""
+
