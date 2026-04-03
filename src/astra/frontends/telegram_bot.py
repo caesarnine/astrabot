@@ -32,6 +32,7 @@ class TelegramFrontend:
                 BotCommand("whoami", "Show Telegram ids for lock-down"),
                 BotCommand("status", "Show auth and thread status"),
                 BotCommand("new", "Create a new thread"),
+                BotCommand("effort", "Show or set reasoning effort"),
                 BotCommand("threads", "List recent threads"),
                 BotCommand("use", "Switch to a thread"),
                 BotCommand("rename", "Rename the active thread"),
@@ -52,7 +53,7 @@ class TelegramFrontend:
             await app.shutdown()
 
     def _register_handlers(self, app: Application) -> None:
-        commands = ["start", "help", "login", "logout", "whoami", "status", "new", "clear", "threads", "use", "rename", "archive"]
+        commands = ["start", "help", "login", "logout", "whoami", "status", "new", "clear", "effort", "threads", "use", "rename", "archive"]
         for command in commands:
             app.add_handler(CommandHandler(command, self._handle_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_text))

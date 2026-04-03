@@ -44,6 +44,7 @@ These commands behave the same in Telegram and the local REPL unless noted:
 - `/status` show auth state and the active thread
 - `/new [title]` create and switch to a new thread
 - `/clear` alias for `/new`
+- `/effort [value]` show or set thread reasoning effort
 - `/threads` list recent Astra-known threads
 - `/use <thread-id-prefix-or-title>` switch to an existing thread
 - `/rename <title>` rename the active thread
@@ -88,6 +89,7 @@ open_browser_on_login = true
 bin = "codex"
 model = "gpt-5.4"
 personality = "friendly"
+reasoning_effort = "high"
 
 [telegram]
 bot_token = "paste-your-bot-token-here"
@@ -105,6 +107,8 @@ developer_instructions = """
 Keep replies concise unless I ask for depth.
 """
 ```
+
+`reasoning_effort` defaults to `high`. You can override it per thread at runtime with `/effort low`, `/effort medium`, `/effort high`, or `/effort xhigh`.
 
 Environment variables still work and override `astra.toml` when set. If you want a different config location, set `ASTRA_CONFIG_PATH`.
 

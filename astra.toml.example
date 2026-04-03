@@ -7,6 +7,7 @@ open_browser_on_login = true
 bin = "codex"
 model = "gpt-5.4"
 personality = "friendly"
+reasoning_effort = "high"
 
 # Optional thread-level instruction overrides.
 # base_instructions = """

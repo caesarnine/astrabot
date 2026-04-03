@@ -6,6 +6,8 @@ from pathlib import Path
 import tomllib
 from typing import Any
 
+REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
+
 
 def _env_flag(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -21,6 +23,7 @@ class Settings:
     codex_personality: str
     codex_base_instructions: str | None
     codex_developer_instructions: str | None
+    codex_reasoning_effort: str
     db_path: Path
     telegram_bot_token: str | None
     allowed_telegram_user_id: int | None
@@ -60,6 +63,15 @@ class Settings:
                     "ASTRA_CODEX_DEVELOPER_INSTRUCTIONS",
                     _nested_get(config, "codex", "developer_instructions"),
                 )
+            ),
+            codex_reasoning_effort=_choice_value(
+                _env_or_config(
+                    "ASTRA_CODEX_REASONING_EFFORT",
+                    _nested_get(config, "codex", "reasoning_effort"),
+                ),
+                default="high",
+                choices=REASONING_EFFORTS,
+                label="codex reasoning effort",
             ),
             db_path=_path_value(
                 _env_or_config("ASTRA_DB_PATH", _nested_get(config, "app", "db_path")),
@@ -158,3 +170,11 @@ def _path_value(value: Any, config_path: Path, default: str) -> Path:
     if path.is_absolute():
         return path
     return config_path.parent.joinpath(path)
+
+
+def _choice_value(value: Any, default: str, choices: tuple[str, ...], label: str) -> str:
+    normalized = _string_value(value, default=default).lower()
+    if normalized not in choices:
+        options = ", ".join(choices)
+        raise ValueError(f"Invalid {label}: {normalized!r}. Expected one of: {options}")
+    return normalized

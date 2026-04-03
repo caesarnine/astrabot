@@ -7,7 +7,7 @@ import textwrap
 import webbrowser
 
 from .app_server import CodexAppServerClient, CodexAppServerError
-from .settings import Settings
+from .settings import REASONING_EFFORTS, Settings
 from .state import StateStore
 
 
@@ -91,6 +91,11 @@ class AstraService:
             title = " ".join(args).strip() or None
             return await self._new_thread(frontend_kind, context_id, title)
 
+        if command == "/effort":
+            if not args:
+                return await self._show_effort(frontend_kind, context_id)
+            return await self._set_effort(frontend_kind, context_id, args[0])
+
         if command == "/threads":
             return await self._list_threads(frontend_kind, context_id)
 
@@ -132,9 +137,14 @@ class AstraService:
                 thread = await self._client.start_thread()
                 thread_id = thread["thread"]["id"]
                 self._state.set_active_thread_id(frontend_kind, context_id, thread_id)
+                self._state.remember_thread(
+                    thread_id,
+                    reasoning_effort=self._settings.codex_reasoning_effort,
+                )
 
-            reply = await self._client.run_turn(thread_id, text)
-            self._state.remember_thread(thread_id)
+            effort = self._thread_effort(thread_id)
+            reply = await self._client.run_turn(thread_id, text, effort=effort)
+            self._state.remember_thread(thread_id, reasoning_effort=effort)
             return ServiceReply(reply)
 
     async def _status(self, frontend_kind: str, context_id: str) -> ServiceReply:
@@ -151,6 +161,7 @@ class AstraService:
 
         if active_thread_id is None:
             thread_line = "Active thread: none"
+            effort_line = f"Reasoning effort: default ({self._settings.codex_reasoning_effort})"
         else:
             thread_result = await self._client.read_thread(active_thread_id, include_turns=False)
             thread = thread_result.get("thread", {})
@@ -158,8 +169,9 @@ class AstraService:
             thread_line = f"Active thread: {active_thread_id}"
             if name:
                 thread_line += f" ({name})"
+            effort_line = f"Reasoning effort: {self._thread_effort(active_thread_id)}"
 
-        return ServiceReply(f"{auth_line}\n{thread_line}")
+        return ServiceReply(f"{auth_line}\n{thread_line}\n{effort_line}")
 
     async def _new_thread(
         self,
@@ -172,11 +184,49 @@ class AstraService:
         if title:
             await self._client.set_thread_name(thread_id, title)
         self._state.set_active_thread_id(frontend_kind, context_id, thread_id)
-        self._state.remember_thread(thread_id, title)
+        self._state.remember_thread(
+            thread_id,
+            title=title,
+            reasoning_effort=self._settings.codex_reasoning_effort,
+        )
 
         if title:
-            return ServiceReply(f"Switched to new thread {thread_id} ({title}).")
-        return ServiceReply(f"Switched to new thread {thread_id}.")
+            return ServiceReply(
+                f"Switched to new thread {thread_id} ({title}).\nReasoning effort: {self._settings.codex_reasoning_effort}"
+            )
+        return ServiceReply(
+            f"Switched to new thread {thread_id}.\nReasoning effort: {self._settings.codex_reasoning_effort}"
+        )
+
+    async def _show_effort(self, frontend_kind: str, context_id: str) -> ServiceReply:
+        thread_id = self._state.get_active_thread_id(frontend_kind, context_id)
+        if thread_id is None:
+            return ServiceReply(
+                "There is no active thread.\n"
+                f"New threads default to reasoning effort: {self._settings.codex_reasoning_effort}"
+            )
+        return ServiceReply(
+            f"Reasoning effort for {thread_id}: {self._thread_effort(thread_id)}\n"
+            f"Available values: {', '.join(REASONING_EFFORTS)}"
+        )
+
+    async def _set_effort(self, frontend_kind: str, context_id: str, effort: str) -> ServiceReply:
+        normalized = effort.strip().lower()
+        if normalized not in REASONING_EFFORTS:
+            return ServiceReply(
+                f"Invalid effort: {effort}\n"
+                f"Available values: {', '.join(REASONING_EFFORTS)}"
+            )
+
+        thread_id = self._state.get_active_thread_id(frontend_kind, context_id)
+        if thread_id is None:
+            return ServiceReply(
+                "There is no active thread to update.\n"
+                f"New threads default to reasoning effort: {self._settings.codex_reasoning_effort}"
+            )
+
+        self._state.set_thread_reasoning_effort(thread_id, normalized)
+        return ServiceReply(f"Reasoning effort for {thread_id} is now {normalized}.")
 
     async def _list_threads(self, frontend_kind: str, context_id: str) -> ServiceReply:
         active_thread_id = self._state.get_active_thread_id(frontend_kind, context_id)
@@ -188,7 +238,8 @@ class AstraService:
         for thread in threads:
             marker = "*" if thread.thread_id == active_thread_id else " "
             name = thread.title or "(untitled)"
-            lines.append(f"{marker} {thread.thread_id}  {name}")
+            effort = thread.reasoning_effort or self._settings.codex_reasoning_effort
+            lines.append(f"{marker} {thread.thread_id}  {name}  [{effort}]")
 
         lines.append("")
         lines.append("Use /use <thread-id-prefix-or-title> to switch.")
@@ -206,9 +257,15 @@ class AstraService:
         self._state.set_active_thread_id(frontend_kind, context_id, match.thread_id)
         if not self._client.is_thread_loaded(match.thread_id):
             await self._client.resume_thread(match.thread_id)
-        self._state.remember_thread(match.thread_id, match.title)
+        self._state.remember_thread(
+            match.thread_id,
+            match.title,
+            reasoning_effort=match.reasoning_effort or self._settings.codex_reasoning_effort,
+        )
         name = match.title or "(untitled)"
-        return ServiceReply(f"Switched to {match.thread_id} ({name}).")
+        return ServiceReply(
+            f"Switched to {match.thread_id} ({name}).\nReasoning effort: {self._thread_effort(match.thread_id)}"
+        )
 
     async def _rename_thread(self, frontend_kind: str, context_id: str, title: str) -> ServiceReply:
         thread_id = self._state.get_active_thread_id(frontend_kind, context_id)
@@ -245,6 +302,7 @@ class AstraService:
             /status
             /new [title]
             /clear
+            /effort [value]
             /threads
             /use <thread-id-prefix-or-title>
             /rename <title>
@@ -256,3 +314,9 @@ class AstraService:
             Plain text sends a message to the active Codex thread.
             """
         ).strip()
+
+    def _thread_effort(self, thread_id: str) -> str:
+        known_thread = self._state.get_known_thread(thread_id)
+        if known_thread is None or known_thread.reasoning_effort is None:
+            return self._settings.codex_reasoning_effort
+        return known_thread.reasoning_effort

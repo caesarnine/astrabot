@@ -182,13 +182,17 @@ class CodexAppServerClient:
             for item in result.get("data", [])
         ]
 
-    async def run_turn(self, thread_id: str, text: str) -> str:
+    async def run_turn(self, thread_id: str, text: str, effort: str | None = None) -> str:
+        params: dict[str, Any] = {
+            "threadId": thread_id,
+            "input": [{"type": "text", "text": text}],
+        }
+        if effort is not None:
+            params["effort"] = effort
+
         result = await self.request(
             "turn/start",
-            {
-                "threadId": thread_id,
-                "input": [{"type": "text", "text": text}],
-            },
+            params,
         )
         turn = result.get("turn", {})
         turn_id = turn.get("id")

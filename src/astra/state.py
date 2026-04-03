@@ -9,6 +9,7 @@ from pathlib import Path
 class KnownThread:
     thread_id: str
     title: str | None
+    reasoning_effort: str | None
 
 
 class StateStore:
@@ -32,11 +33,13 @@ class StateStore:
             create table if not exists known_threads (
                 thread_id text not null primary key,
                 title text null,
+                reasoning_effort text null,
                 created_at text not null default current_timestamp,
                 last_used_at text not null default current_timestamp
             );
             """
         )
+        self._ensure_column("known_threads", "reasoning_effort", "text null")
         self._conn.commit()
 
     def get_active_thread_id(self, frontend_kind: str, context_id: str) -> str | None:
@@ -71,17 +74,23 @@ class StateStore:
         )
         self._conn.commit()
 
-    def remember_thread(self, thread_id: str, title: str | None = None) -> None:
+    def remember_thread(
+        self,
+        thread_id: str,
+        title: str | None = None,
+        reasoning_effort: str | None = None,
+    ) -> None:
         self._conn.execute(
             """
-            insert into known_threads (thread_id, title)
-            values (?, ?)
+            insert into known_threads (thread_id, title, reasoning_effort)
+            values (?, ?, ?)
             on conflict(thread_id)
             do update set
                 title = coalesce(excluded.title, known_threads.title),
+                reasoning_effort = coalesce(excluded.reasoning_effort, known_threads.reasoning_effort),
                 last_used_at = current_timestamp
             """,
-            (thread_id, title),
+            (thread_id, title, reasoning_effort),
         )
         self._conn.commit()
 
@@ -99,17 +108,38 @@ class StateStore:
         )
         self._conn.commit()
 
+    def set_thread_reasoning_effort(self, thread_id: str, reasoning_effort: str) -> None:
+        self._conn.execute(
+            """
+            insert into known_threads (thread_id, reasoning_effort)
+            values (?, ?)
+            on conflict(thread_id)
+            do update set
+                reasoning_effort = excluded.reasoning_effort,
+                last_used_at = current_timestamp
+            """,
+            (thread_id, reasoning_effort),
+        )
+        self._conn.commit()
+
     def list_known_threads(self, limit: int = 15) -> list[KnownThread]:
         rows = self._conn.execute(
             """
-            select thread_id, title
+            select thread_id, title, reasoning_effort
             from known_threads
             order by last_used_at desc, created_at desc
             limit ?
             """,
             (limit,),
         ).fetchall()
-        return [KnownThread(thread_id=row["thread_id"], title=row["title"]) for row in rows]
+        return [
+            KnownThread(
+                thread_id=row["thread_id"],
+                title=row["title"],
+                reasoning_effort=row["reasoning_effort"],
+            )
+            for row in rows
+        ]
 
     def find_known_threads(self, selector: str, limit: int = 50) -> list[KnownThread]:
         lowered = selector.strip().lower()
@@ -125,6 +155,30 @@ class StateStore:
                 matches.append(thread)
 
         return matches
+
+    def get_known_thread(self, thread_id: str) -> KnownThread | None:
+        row = self._conn.execute(
+            """
+            select thread_id, title, reasoning_effort
+            from known_threads
+            where thread_id = ?
+            """,
+            (thread_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return KnownThread(
+            thread_id=row["thread_id"],
+            title=row["title"],
+            reasoning_effort=row["reasoning_effort"],
+        )
+
+    def _ensure_column(self, table_name: str, column_name: str, column_sql: str) -> None:
+        rows = self._conn.execute(f"pragma table_info({table_name})").fetchall()
+        existing = {row["name"] for row in rows}
+        if column_name in existing:
+            return
+        self._conn.execute(f"alter table {table_name} add column {column_name} {column_sql}")
 
     def close(self) -> None:
         self._conn.close()
