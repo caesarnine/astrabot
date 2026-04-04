@@ -7,6 +7,8 @@ import tomllib
 from typing import Any
 
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
+APPROVAL_POLICIES = ("untrusted", "on-failure", "on-request", "never")
+SANDBOX_MODES = ("read-only", "workspace-write", "danger-full-access")
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -24,6 +26,8 @@ class Settings:
     codex_base_instructions: str | None
     codex_developer_instructions: str | None
     codex_reasoning_effort: str
+    codex_approval_policy: str
+    codex_sandbox_mode: str
     db_path: Path
     telegram_bot_token: str | None
     allowed_telegram_user_id: int | None
@@ -72,6 +76,24 @@ class Settings:
                 default="high",
                 choices=REASONING_EFFORTS,
                 label="codex reasoning effort",
+            ),
+            codex_approval_policy=_choice_value(
+                _env_or_config(
+                    "ASTRA_CODEX_APPROVAL_POLICY",
+                    _nested_get(config, "codex", "approval_policy"),
+                ),
+                default="never",
+                choices=APPROVAL_POLICIES,
+                label="codex approval policy",
+            ),
+            codex_sandbox_mode=_choice_value(
+                _env_or_config(
+                    "ASTRA_CODEX_SANDBOX_MODE",
+                    _nested_get(config, "codex", "sandbox_mode"),
+                ),
+                default="danger-full-access",
+                choices=SANDBOX_MODES,
+                label="codex sandbox mode",
             ),
             db_path=_path_value(
                 _env_or_config("ASTRA_DB_PATH", _nested_get(config, "app", "db_path")),

@@ -171,7 +171,9 @@ class AstraService:
                 thread_line += f" ({name})"
             effort_line = f"Reasoning effort: {self._thread_effort(active_thread_id)}"
 
-        return ServiceReply(f"{auth_line}\n{thread_line}\n{effort_line}")
+        policy_line = f"Approval policy: {self._settings.codex_approval_policy}"
+        sandbox_line = f"Sandbox mode: {self._settings.codex_sandbox_mode}"
+        return ServiceReply(f"{auth_line}\n{thread_line}\n{effort_line}\n{policy_line}\n{sandbox_line}")
 
     async def _new_thread(
         self,

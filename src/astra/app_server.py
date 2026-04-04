@@ -120,6 +120,8 @@ class CodexAppServerClient:
         params: dict[str, Any] = {
             "model": self._settings.codex_model,
             "personality": self._settings.codex_personality,
+            "approvalPolicy": self._settings.codex_approval_policy,
+            "sandbox": self._settings.codex_sandbox_mode,
         }
         if self._settings.codex_base_instructions is not None:
             params["baseInstructions"] = self._settings.codex_base_instructions
@@ -139,6 +141,8 @@ class CodexAppServerClient:
         params: dict[str, Any] = {
             "threadId": thread_id,
             "personality": self._settings.codex_personality,
+            "approvalPolicy": self._settings.codex_approval_policy,
+            "sandbox": self._settings.codex_sandbox_mode,
         }
         if self._settings.codex_base_instructions is not None:
             params["baseInstructions"] = self._settings.codex_base_instructions
@@ -186,6 +190,8 @@ class CodexAppServerClient:
         params: dict[str, Any] = {
             "threadId": thread_id,
             "input": [{"type": "text", "text": text}],
+            "approvalPolicy": self._settings.codex_approval_policy,
+            "sandboxPolicy": _sandbox_policy_for_mode(self._settings.codex_sandbox_mode),
         }
         if effort is not None:
             params["effort"] = effort
@@ -307,8 +313,14 @@ class CodexAppServerClient:
         method = message["method"]
         request_id = message["id"]
 
-        if method in {"item/commandExecution/requestApproval", "item/fileChange/requestApproval"}:
-            await self._send({"id": request_id, "result": "decline"})
+        if method == "item/commandExecution/requestApproval":
+            decision = "accept" if self._settings.codex_approval_policy == "never" else "decline"
+            await self._send({"id": request_id, "result": {"decision": decision}})
+            return
+
+        if method == "item/fileChange/requestApproval":
+            decision = "accept" if self._settings.codex_approval_policy == "never" else "decline"
+            await self._send({"id": request_id, "result": {"decision": decision}})
             return
 
         await self._send(
@@ -346,3 +358,11 @@ class CodexAppServerClient:
                 waiter.set_result(turn)
             else:
                 self._turn_backlog[turn_id] = turn
+
+
+def _sandbox_policy_for_mode(mode: str) -> dict[str, Any]:
+    if mode == "danger-full-access":
+        return {"type": "dangerFullAccess"}
+    if mode == "workspace-write":
+        return {"type": "workspaceWrite", "networkAccess": False}
+    return {"type": "readOnly", "networkAccess": False}

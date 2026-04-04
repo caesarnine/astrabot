@@ -8,6 +8,8 @@ bin = "codex"
 model = "gpt-5.4"
 personality = "friendly"
 reasoning_effort = "high"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
 
 # Optional thread-level instruction overrides.
 # base_instructions = """
