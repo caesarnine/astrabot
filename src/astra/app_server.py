@@ -116,18 +116,26 @@ class CodexAppServerClient:
     async def logout(self) -> None:
         await self.request("account/logout")
 
-    async def start_thread(self) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "model": self._settings.codex_model,
-            "personality": self._settings.codex_personality,
-            "approvalPolicy": self._settings.codex_approval_policy,
-            "sandbox": self._settings.codex_sandbox_mode,
-        }
-        if self._settings.codex_base_instructions is not None:
-            params["baseInstructions"] = self._settings.codex_base_instructions
-        if self._settings.codex_developer_instructions is not None:
-            params["developerInstructions"] = self._settings.codex_developer_instructions
-
+    async def start_thread(
+        self,
+        *,
+        cwd: str | None = None,
+        model: str | None = None,
+        personality: str | None = None,
+        approval_policy: str | None = None,
+        sandbox_mode: str | None = None,
+        base_instructions: str | None = None,
+        developer_instructions: str | None = None,
+    ) -> dict[str, Any]:
+        params = self._thread_params(
+            cwd=cwd,
+            model=model,
+            personality=personality,
+            approval_policy=approval_policy,
+            sandbox_mode=sandbox_mode,
+            base_instructions=base_instructions,
+            developer_instructions=developer_instructions,
+        )
         result = await self.request(
             "thread/start",
             params,
@@ -137,18 +145,28 @@ class CodexAppServerClient:
             self._loaded_threads.add(thread_id)
         return result
 
-    async def resume_thread(self, thread_id: str) -> dict[str, Any]:
-        params: dict[str, Any] = {
-            "threadId": thread_id,
-            "personality": self._settings.codex_personality,
-            "approvalPolicy": self._settings.codex_approval_policy,
-            "sandbox": self._settings.codex_sandbox_mode,
-        }
-        if self._settings.codex_base_instructions is not None:
-            params["baseInstructions"] = self._settings.codex_base_instructions
-        if self._settings.codex_developer_instructions is not None:
-            params["developerInstructions"] = self._settings.codex_developer_instructions
-
+    async def resume_thread(
+        self,
+        thread_id: str,
+        *,
+        cwd: str | None = None,
+        model: str | None = None,
+        personality: str | None = None,
+        approval_policy: str | None = None,
+        sandbox_mode: str | None = None,
+        base_instructions: str | None = None,
+        developer_instructions: str | None = None,
+    ) -> dict[str, Any]:
+        params = self._thread_params(
+            cwd=cwd,
+            model=model,
+            personality=personality,
+            approval_policy=approval_policy,
+            sandbox_mode=sandbox_mode,
+            base_instructions=base_instructions,
+            developer_instructions=developer_instructions,
+        )
+        params["threadId"] = thread_id
         result = await self.request(
             "thread/resume",
             params,
@@ -186,15 +204,29 @@ class CodexAppServerClient:
             for item in result.get("data", [])
         ]
 
-    async def run_turn(self, thread_id: str, text: str, effort: str | None = None) -> str:
+    async def run_turn(
+        self,
+        thread_id: str,
+        text: str,
+        effort: str | None = None,
+        *,
+        cwd: str | None = None,
+        model: str | None = None,
+        approval_policy: str | None = None,
+        sandbox_mode: str | None = None,
+    ) -> str:
         params: dict[str, Any] = {
             "threadId": thread_id,
             "input": [{"type": "text", "text": text}],
-            "approvalPolicy": self._settings.codex_approval_policy,
-            "sandboxPolicy": _sandbox_policy_for_mode(self._settings.codex_sandbox_mode),
+            "approvalPolicy": approval_policy or self._settings.codex_approval_policy,
+            "sandboxPolicy": _sandbox_policy_for_mode(sandbox_mode or self._settings.codex_sandbox_mode),
         }
         if effort is not None:
             params["effort"] = effort
+        if cwd is not None:
+            params["cwd"] = cwd
+        if model is not None:
+            params["model"] = model
 
         result = await self.request(
             "turn/start",
@@ -237,6 +269,33 @@ class CodexAppServerClient:
             return await future
         finally:
             self._turn_waiters.pop(turn_id, None)
+
+    def _thread_params(
+        self,
+        *,
+        cwd: str | None,
+        model: str | None,
+        personality: str | None,
+        approval_policy: str | None,
+        sandbox_mode: str | None,
+        base_instructions: str | None,
+        developer_instructions: str | None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "model": model or self._settings.codex_model,
+            "personality": personality or self._settings.codex_personality,
+            "approvalPolicy": approval_policy or self._settings.codex_approval_policy,
+            "sandbox": sandbox_mode or self._settings.codex_sandbox_mode,
+        }
+        effective_base = base_instructions or self._settings.codex_base_instructions
+        effective_developer = developer_instructions or self._settings.codex_developer_instructions
+        if effective_base is not None:
+            params["baseInstructions"] = effective_base
+        if effective_developer is not None:
+            params["developerInstructions"] = effective_developer
+        if cwd is not None:
+            params["cwd"] = cwd
+        return params
 
     def _extract_agent_text(self, turn: dict[str, Any]) -> str:
         items = turn.get("items", [])

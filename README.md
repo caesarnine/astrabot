@@ -1,7 +1,8 @@
 # Astra
 
-Astra is a very small Python bridge that lets you talk to Codex from either:
+Astra is a local-first Python app that lets you use Codex from either:
 
+- A local web app with a vault, agents, and scheduled jobs
 - Telegram
 - A local terminal REPL
 
@@ -10,28 +11,39 @@ Both frontends share the same core logic and the same Codex thread model, so swi
 ## Why this MVP is simple
 
 - `codex app-server` owns auth and long-lived thread history
-- Astra only stores frontend-to-thread mappings and a small thread index in SQLite
-- Telegram and the terminal REPL both call the same service layer
-- There is no web server in v0
+- Astra stores frontend mappings, vault metadata, agents, jobs, and run history in SQLite
+- The local web app keeps the knowledge base as normal files on disk
+- Telegram, the terminal REPL, and the web app all share the same Codex bridge
 
 ## Architecture
 
 ```text
-Telegram / TUI
-      |
-      v
-  Astra service
-      |
-      +-- command parser
-      +-- active-thread router
-      +-- SQLite context mappings
-      |
-      v
-codex app-server
-      |
-      v
+Web UI / Telegram / TUI
+        |
+        v
+   Astra app
+        |
+        +-- Codex bridge
+        +-- vault + search index
+        +-- agent runtime
+        +-- scheduler
+        +-- SQLite state
+        |
+        v
+  codex app-server
+        |
+        v
 ChatGPT auth + durable Codex threads
 ```
+
+## Web app features
+
+- Local filesystem vault for markdown notes and attachments
+- Search backed by SQLite FTS
+- Per-agent Codex threads with scoped working directories
+- Manual quick runs and reusable jobs
+- Heartbeat-style scheduled jobs
+- Run history with touched-file tracking
 
 ## Commands
 
@@ -85,6 +97,18 @@ db_path = ".astra/astra.db"
 tui_context_id = "local"
 open_browser_on_login = true
 
+[web]
+host = "127.0.0.1"
+port = 8765
+open_browser = true
+scheduler_poll_seconds = 10
+agent_approval_policy = "never"
+agent_sandbox_mode = "workspace-write"
+
+[vault]
+path = ".astra/vault"
+inbox_dir = "Inbox"
+
 [codex]
 bin = "codex"
 model = "gpt-5.4"
@@ -112,11 +136,17 @@ Keep replies concise unless I ask for depth.
 
 `reasoning_effort` defaults to `high`. You can override it per thread at runtime with `/effort low`, `/effort medium`, `/effort high`, or `/effort xhigh`.
 
-`approval_policy = "never"` and `sandbox_mode = "danger-full-access"` make Astra run Codex with no approval prompts and no sandbox restrictions by default. This is intentionally powerful and is best used on a dedicated machine, VM, or isolated Unix user that you trust.
+`[web].agent_sandbox_mode = "workspace-write"` is the safer default for vault agents because it keeps them inside the working tree. The broader `codex.sandbox_mode` setting still applies to the TUI and Telegram flows.
 
 Environment variables still work and override `astra.toml` when set. If you want a different config location, set `ASTRA_CONFIG_PATH`.
 
 ## Run
+
+Start the local web app:
+
+```bash
+uv run astra web
+```
 
 Start the local REPL:
 
@@ -152,12 +182,19 @@ Then restart the bot.
 
 ```text
 src/astra/
+  agent_runtime.py
   cli.py
+  events.py
   settings.py
   state.py
   app_server.py
   service.py
+  vault.py
+  web.py
+  web_state.py
   frontends/
     tui.py
     telegram_bot.py
+  static/
+  templates/
 ```

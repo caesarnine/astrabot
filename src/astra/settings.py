@@ -33,6 +33,14 @@ class Settings:
     allowed_telegram_user_id: int | None
     tui_context_id: str
     open_browser_on_login: bool
+    web_host: str
+    web_port: int
+    web_open_browser: bool
+    web_scheduler_poll_seconds: int
+    web_agent_approval_policy: str
+    web_agent_sandbox_mode: str
+    vault_path: Path
+    vault_inbox_dir: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -113,6 +121,53 @@ class Settings:
                 config_value=_nested_get(config, "app", "open_browser_on_login"),
                 default=True,
             ),
+            web_host=_string_value(
+                _env_or_config("ASTRA_WEB_HOST", _nested_get(config, "web", "host")),
+                default="127.0.0.1",
+            ),
+            web_port=_int_value(
+                _env_or_config("ASTRA_WEB_PORT", _nested_get(config, "web", "port")),
+                default=8765,
+            ),
+            web_open_browser=_bool_value(
+                env_name="ASTRA_WEB_OPEN_BROWSER",
+                config_value=_nested_get(config, "web", "open_browser"),
+                default=True,
+            ),
+            web_scheduler_poll_seconds=_int_value(
+                _env_or_config(
+                    "ASTRA_WEB_SCHEDULER_POLL_SECONDS",
+                    _nested_get(config, "web", "scheduler_poll_seconds"),
+                ),
+                default=10,
+            ),
+            web_agent_approval_policy=_choice_value(
+                _env_or_config(
+                    "ASTRA_WEB_AGENT_APPROVAL_POLICY",
+                    _nested_get(config, "web", "agent_approval_policy"),
+                ),
+                default="never",
+                choices=APPROVAL_POLICIES,
+                label="web agent approval policy",
+            ),
+            web_agent_sandbox_mode=_choice_value(
+                _env_or_config(
+                    "ASTRA_WEB_AGENT_SANDBOX_MODE",
+                    _nested_get(config, "web", "agent_sandbox_mode"),
+                ),
+                default="workspace-write",
+                choices=SANDBOX_MODES,
+                label="web agent sandbox mode",
+            ),
+            vault_path=_path_value(
+                _env_or_config("ASTRA_VAULT_PATH", _nested_get(config, "vault", "path")),
+                config_path=config_path,
+                default=".astra/vault",
+            ),
+            vault_inbox_dir=_string_value(
+                _env_or_config("ASTRA_VAULT_INBOX_DIR", _nested_get(config, "vault", "inbox_dir")),
+                default="Inbox",
+            ),
         )
 
 
@@ -174,6 +229,13 @@ def _optional_int(value: Any) -> int | None:
     if not text:
         return None
     return int(text)
+
+
+def _int_value(value: Any, default: int) -> int:
+    maybe_value = _optional_int(value)
+    if maybe_value is None:
+        return default
+    return maybe_value
 
 
 def _bool_value(env_name: str, config_value: Any, default: bool) -> bool:

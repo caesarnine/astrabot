@@ -8,11 +8,12 @@ from .frontends.telegram_bot import TelegramFrontend
 from .frontends.tui import TuiFrontend
 from .service import AstraService
 from .settings import Settings
+from .web import run_web_frontend
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Astra: Codex over Telegram or a local TUI.")
-    parser.add_argument("mode", choices=["tui", "telegram"])
+    parser = argparse.ArgumentParser(description="Astra: Codex over Telegram, a local TUI, or a web app.")
+    parser.add_argument("mode", choices=["tui", "telegram", "web"])
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -22,6 +23,10 @@ def main() -> None:
     )
 
     settings = Settings.load()
+    if args.mode == "web":
+        run_web_frontend(settings)
+        return
+
     service = AstraService(settings)
 
     try:

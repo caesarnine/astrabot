@@ -3,6 +3,18 @@ db_path = ".astra/astra.db"
 tui_context_id = "local"
 open_browser_on_login = true
 
+[web]
+host = "127.0.0.1"
+port = 8765
+open_browser = true
+scheduler_poll_seconds = 10
+agent_approval_policy = "never"
+agent_sandbox_mode = "workspace-write"
+
+[vault]
+path = ".astra/vault"
+inbox_dir = "Inbox"
+
 [codex]
 bin = "codex"
 model = "gpt-5.4"
