@@ -1,0 +1,190 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]: A
+        - generic [ref=e7]:
+          - paragraph [ref=e8]: Knowledge workspace
+          - heading "Astra" [level=1] [ref=e9]
+      - generic [ref=e10]:
+        - button "Activity" [ref=e11] [cursor=pointer]
+        - button "Agents" [ref=e12] [cursor=pointer]
+        - button "Sidebar" [ref=e13] [cursor=pointer]
+    - generic [ref=e15]:
+      - generic [ref=e16]: Quick switch
+      - searchbox "Quick switch Cmd+K" [ref=e17]
+      - generic [ref=e18]: Cmd+K
+    - generic [ref=e19]:
+      - button "New note" [ref=e20] [cursor=pointer]
+      - generic [ref=e21]:
+        - generic [ref=e22]: binalkp91@gmail.com
+        - button "Logout" [ref=e23] [cursor=pointer]
+  - generic [ref=e24]:
+    - complementary [ref=e25]:
+      - generic [ref=e26]:
+        - button "Files" [ref=e27] [cursor=pointer]
+        - button "+" [ref=e28] [cursor=pointer]
+        - button "AI" [ref=e29] [cursor=pointer]
+        - button "Run" [ref=e30] [cursor=pointer]
+      - generic [ref=e31]:
+        - generic [ref=e32]:
+          - generic [ref=e33]:
+            - paragraph [ref=e34]: Vault
+            - heading "vault" [level=2] [ref=e35]
+          - button "New" [ref=e36] [cursor=pointer]
+        - generic [ref=e37]: Markdown notes and agent outputs
+        - generic [ref=e38]:
+          - group [ref=e39]:
+            - generic "Inbox" [ref=e40] [cursor=pointer]
+            - button "2026-04-05-inbox-heartbeat.md" [ref=e41] [cursor=pointer]
+          - group [ref=e42]:
+            - generic "Web" [ref=e43] [cursor=pointer]
+            - button "2026-04-05-summarizer.md" [ref=e44] [cursor=pointer]
+            - button "new-note.md" [ref=e45] [cursor=pointer]
+          - button "Getting-Started.md" [ref=e46] [cursor=pointer]
+    - main [ref=e47]:
+      - generic [ref=e49]:
+        - button "Edit" [ref=e50] [cursor=pointer]
+        - button "Preview" [ref=e51] [cursor=pointer]
+        - button "Split" [ref=e52] [cursor=pointer]
+      - generic [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]:
+            - paragraph [ref=e56]: No document selected
+            - heading "Welcome" [level=2] [ref=e57]
+            - paragraph [ref=e58]: Choose a note from the vault.
+          - generic [ref=e59]:
+            - button "Run on note" [disabled] [ref=e60] [cursor=pointer]
+            - generic [ref=e61]: HN Summarizer • Web
+            - generic [ref=e62]: Idle
+            - button "Save" [ref=e63] [cursor=pointer]
+        - textbox "Select a note to start writing." [ref=e65]
+    - complementary [ref=e67]:
+      - generic [ref=e68]:
+        - button "Activity" [ref=e69] [cursor=pointer]
+        - button "Agents" [ref=e70] [cursor=pointer]
+        - button "Jobs" [ref=e71] [cursor=pointer]
+      - generic [ref=e72]:
+        - generic [ref=e73]:
+          - generic [ref=e75]:
+            - paragraph [ref=e76]: Ambient layer
+            - heading "Agent presence" [level=2] [ref=e77]
+          - generic [ref=e78]:
+            - button "HN Summarizer Web • 4/5/2026, 3:27:22 PM Running" [ref=e79] [cursor=pointer]:
+              - generic [ref=e80]:
+                - paragraph [ref=e81]: HN Summarizer
+                - paragraph [ref=e82]: Web • 4/5/2026, 3:27:22 PM
+              - generic [ref=e83]: Running
+            - button "Inbox Research Inbox • 4/5/2026, 3:26:08 PM Running" [ref=e84] [cursor=pointer]:
+              - generic [ref=e85]:
+                - paragraph [ref=e86]: Inbox Research
+                - paragraph [ref=e87]: Inbox • 4/5/2026, 3:26:08 PM
+              - generic [ref=e88]: Running
+        - generic [ref=e89]:
+          - generic [ref=e91]:
+            - paragraph [ref=e92]: Recent work
+            - heading "Runs" [level=2] [ref=e93]
+          - generic [ref=e94]:
+            - button "Web/2026-04-05-summarizer.md running schedule • 4/5/2026, 3:31:09 PM" [ref=e95] [cursor=pointer]:
+              - generic [ref=e96]:
+                - paragraph [ref=e97]: Web/2026-04-05-summarizer.md
+                - generic [ref=e98]: running
+              - paragraph [ref=e99]: schedule • 4/5/2026, 3:31:09 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 3:21:13 PM" [ref=e100] [cursor=pointer]:
+              - generic [ref=e101]:
+                - paragraph [ref=e102]: Web/2026-04-05-summarizer.md
+                - generic [ref=e103]: succeeded
+              - paragraph [ref=e104]: schedule • 4/5/2026, 3:21:13 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 3:15:33 PM" [ref=e105] [cursor=pointer]:
+              - generic [ref=e106]:
+                - paragraph [ref=e107]: Web/2026-04-05-summarizer.md
+                - generic [ref=e108]: succeeded
+              - paragraph [ref=e109]: schedule • 4/5/2026, 3:15:33 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 3:09:43 PM" [ref=e110] [cursor=pointer]:
+              - generic [ref=e111]:
+                - paragraph [ref=e112]: Web/2026-04-05-summarizer.md
+                - generic [ref=e113]: succeeded
+              - paragraph [ref=e114]: schedule • 4/5/2026, 3:09:43 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 3:03:33 PM" [ref=e115] [cursor=pointer]:
+              - generic [ref=e116]:
+                - paragraph [ref=e117]: Web/2026-04-05-summarizer.md
+                - generic [ref=e118]: succeeded
+              - paragraph [ref=e119]: schedule • 4/5/2026, 3:03:33 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 2:48:01 PM" [ref=e120] [cursor=pointer]:
+              - generic [ref=e121]:
+                - paragraph [ref=e122]: Web/2026-04-05-summarizer.md
+                - generic [ref=e123]: succeeded
+              - paragraph [ref=e124]: schedule • 4/5/2026, 2:48:01 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 2:17:11 PM" [ref=e125] [cursor=pointer]:
+              - generic [ref=e126]:
+                - paragraph [ref=e127]: Web/2026-04-05-summarizer.md
+                - generic [ref=e128]: succeeded
+              - paragraph [ref=e129]: schedule • 4/5/2026, 2:17:11 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:57:11 PM" [ref=e130] [cursor=pointer]:
+              - generic [ref=e131]:
+                - paragraph [ref=e132]: Web/2026-04-05-summarizer.md
+                - generic [ref=e133]: succeeded
+              - paragraph [ref=e134]: schedule • 4/5/2026, 1:57:11 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:51:41 PM" [ref=e135] [cursor=pointer]:
+              - generic [ref=e136]:
+                - paragraph [ref=e137]: Web/2026-04-05-summarizer.md
+                - generic [ref=e138]: succeeded
+              - paragraph [ref=e139]: schedule • 4/5/2026, 1:51:41 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:46:11 PM" [ref=e140] [cursor=pointer]:
+              - generic [ref=e141]:
+                - paragraph [ref=e142]: Web/2026-04-05-summarizer.md
+                - generic [ref=e143]: succeeded
+              - paragraph [ref=e144]: schedule • 4/5/2026, 1:46:11 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:40:31 PM" [ref=e145] [cursor=pointer]:
+              - generic [ref=e146]:
+                - paragraph [ref=e147]: Web/2026-04-05-summarizer.md
+                - generic [ref=e148]: succeeded
+              - paragraph [ref=e149]: schedule • 4/5/2026, 1:40:31 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:34:31 PM" [ref=e150] [cursor=pointer]:
+              - generic [ref=e151]:
+                - paragraph [ref=e152]: Web/2026-04-05-summarizer.md
+                - generic [ref=e153]: succeeded
+              - paragraph [ref=e154]: schedule • 4/5/2026, 1:34:31 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:29:00 PM" [ref=e155] [cursor=pointer]:
+              - generic [ref=e156]:
+                - paragraph [ref=e157]: Web/2026-04-05-summarizer.md
+                - generic [ref=e158]: succeeded
+              - paragraph [ref=e159]: schedule • 4/5/2026, 1:29:00 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:23:30 PM" [ref=e160] [cursor=pointer]:
+              - generic [ref=e161]:
+                - paragraph [ref=e162]: Web/2026-04-05-summarizer.md
+                - generic [ref=e163]: succeeded
+              - paragraph [ref=e164]: schedule • 4/5/2026, 1:23:30 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:17:50 PM" [ref=e165] [cursor=pointer]:
+              - generic [ref=e166]:
+                - paragraph [ref=e167]: Web/2026-04-05-summarizer.md
+                - generic [ref=e168]: succeeded
+              - paragraph [ref=e169]: schedule • 4/5/2026, 1:17:50 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:11:50 PM" [ref=e170] [cursor=pointer]:
+              - generic [ref=e171]:
+                - paragraph [ref=e172]: Web/2026-04-05-summarizer.md
+                - generic [ref=e173]: succeeded
+              - paragraph [ref=e174]: schedule • 4/5/2026, 1:11:50 PM
+            - button "Web/2026-04-05-summarizer.md succeeded schedule • 4/5/2026, 1:04:40 PM" [ref=e175] [cursor=pointer]:
+              - generic [ref=e176]:
+                - paragraph [ref=e177]: Web/2026-04-05-summarizer.md
+                - generic [ref=e178]: succeeded
+              - paragraph [ref=e179]: schedule • 4/5/2026, 1:04:40 PM
+          - generic [ref=e180]:
+            - generic [ref=e181]:
+              - paragraph [ref=e182]: run_5d2b8d7ef108
+              - generic [ref=e183]: running
+            - generic [ref=e184]: Started 4/5/2026, 3:31:09 PM
+            - generic [ref=e185]: Finished Not scheduled
+            - generic [ref=e186]: No file changes captured.
+            - generic [ref=e187]: No summary captured.
+            - button "Open output note" [ref=e189] [cursor=pointer]
+      - text: Show Show
+  - contentinfo [ref=e190]:
+    - generic [ref=e191]:
+      - generic [ref=e192]: No note selected
+      - generic [ref=e193]: 0 words • 0 chars
+      - generic [ref=e194]: Idle
+    - generic [ref=e195]:
+      - generic [ref=e196]: HN Summarizer is running
+      - generic [ref=e197]: Next heartbeat 4/5/2026, 3:26:08 PM

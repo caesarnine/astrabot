@@ -7,186 +7,289 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="brand">
-          <div class="brand-mark">A</div>
-          <div>
-            <h1>{{ app_name }}</h1>
-            <p>Local knowledge base with Codex-powered agents</p>
+    <div class="workspace-shell">
+      <header class="app-topbar">
+        <div class="topbar-left">
+          <div class="brand-lockup">
+            <div class="brand-mark">A</div>
+            <div>
+              <p class="eyebrow">Knowledge workspace</p>
+              <h1>{{ app_name }}</h1>
+            </div>
+          </div>
+
+          <div class="topbar-shortcuts">
+            <button id="open-activity-button" type="button" class="toolbar-button">Activity</button>
+            <button id="open-agents-button" type="button" class="toolbar-button">Agents</button>
+            <button id="toggle-right-sidebar-button" type="button" class="toolbar-button">Sidebar</button>
           </div>
         </div>
-        <div class="topbar-actions">
-          <label class="search">
-            <span>Search</span>
-            <input id="search-input" type="search" placeholder="Search notes and docs" />
+
+        <div class="command-bar-wrap">
+          <label class="command-bar">
+            <span class="command-label">Quick switch</span>
+            <input id="search-input" type="search" placeholder="Find notes, outputs, and references" />
+            <span class="command-hint">Cmd+K</span>
           </label>
-          <div id="search-results" class="search-results hidden"></div>
-          <div class="account-card">
+          <div id="search-results" class="search-popover hidden"></div>
+        </div>
+
+        <div class="topbar-right">
+          <button id="new-note-button" type="button" class="primary-button subtle">New note</button>
+          <div class="account-cluster">
             <div id="account-status" class="status-pill">Checking auth…</div>
-            <button id="login-button" type="button" class="ghost-button">Login</button>
-            <button id="logout-button" type="button" class="ghost-button hidden">Logout</button>
+            <button id="login-button" type="button" class="toolbar-button">Login</button>
+            <button id="logout-button" type="button" class="toolbar-button hidden">Logout</button>
           </div>
         </div>
       </header>
 
-      <main class="workspace">
-        <aside class="sidebar panel">
-          <div class="panel-head">
-            <div>
-              <h2>Vault</h2>
-              <p>{{ vault_name }}</p>
-            </div>
-            <button id="new-note-button" type="button" class="primary-button">New Note</button>
+      <div class="app-body">
+        <aside class="left-sidebar">
+          <div class="left-rail">
+            <button type="button" class="rail-button rail-button-active">Files</button>
+            <button id="left-new-note-button" type="button" class="rail-button">+</button>
+            <button id="left-open-agents-button" type="button" class="rail-button">AI</button>
+            <button id="left-open-activity-button" type="button" class="rail-button">Run</button>
           </div>
-          <div id="tree-root" class="tree"></div>
+
+          <div class="left-pane">
+            <div class="pane-head">
+              <div>
+                <p class="eyebrow">Vault</p>
+                <h2>{{ vault_name }}</h2>
+              </div>
+              <button id="explorer-toggle-button" type="button" class="toolbar-button">New</button>
+            </div>
+
+            <form id="new-note-form" class="inline-create hidden">
+              <label>
+                <span>Note name</span>
+                <input id="new-note-name" type="text" placeholder="idea.md" />
+              </label>
+              <label>
+                <span>Folder</span>
+                <input id="new-note-parent" type="text" placeholder="Inbox" />
+              </label>
+              <div class="inline-create-actions">
+                <button type="submit" class="primary-button subtle">Create</button>
+                <button id="cancel-new-note-button" type="button" class="toolbar-button">Cancel</button>
+              </div>
+            </form>
+
+            <div class="explorer-meta">
+              <span id="vault-summary-text">Markdown notes and agent outputs</span>
+            </div>
+            <div id="tree-root" class="tree"></div>
+          </div>
         </aside>
 
-        <section class="editor panel">
-          <div class="panel-head editor-head">
-            <div>
-              <h2 id="document-title">No note selected</h2>
-              <p id="document-path">Choose a file from the vault tree.</p>
-            </div>
-            <div class="editor-actions">
-              <span id="document-state" class="status-pill muted">Idle</span>
-              <button id="save-button" type="button" class="primary-button">Save</button>
+        <main class="document-workspace">
+          <div class="document-topbar">
+            <div id="note-tabs" class="note-tabs"></div>
+
+            <div class="view-switcher">
+              <button id="view-edit-button" type="button" class="toolbar-button">Edit</button>
+              <button id="view-preview-button" type="button" class="toolbar-button">Preview</button>
+              <button id="view-split-button" type="button" class="toolbar-button">Split</button>
             </div>
           </div>
-          <textarea id="editor-textarea" spellcheck="false" placeholder="Select a note to start editing."></textarea>
-        </section>
 
-        <aside class="inspector">
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Agents</h2>
-                <p>Scoped Codex threads with durable note output</p>
+          <section class="document-surface">
+            <div class="document-header">
+              <div class="document-header-copy">
+                <p id="document-breadcrumbs" class="eyebrow">No document selected</p>
+                <h2 id="document-title">Welcome</h2>
+                <p id="document-path" class="document-subtitle">Choose a note from the vault.</p>
               </div>
-              <button id="new-agent-button" type="button" class="primary-button">New Agent</button>
+
+              <div class="document-header-actions">
+                <button id="run-on-note-button" type="button" class="toolbar-button">Run on note</button>
+                <span id="current-agent-chip" class="status-pill muted">No ambient agent</span>
+                <span id="document-state" class="status-pill muted">Idle</span>
+                <button id="save-button" type="button" class="primary-button">Save</button>
+              </div>
             </div>
-            <div id="agent-list" class="agent-list"></div>
+
+            <div id="document-content" class="document-content document-content-split">
+              <textarea id="editor-textarea" spellcheck="false" placeholder="Select a note to start writing."></textarea>
+              <div id="preview-pane" class="preview-pane"></div>
+            </div>
+          </section>
+        </main>
+
+        <aside id="right-sidebar" class="right-sidebar">
+          <div class="right-sidebar-tabs">
+            <button data-sidebar-tab="activity" type="button" class="sidebar-tab sidebar-tab-active">Activity</button>
+            <button data-sidebar-tab="agents" type="button" class="sidebar-tab">Agents</button>
+            <button data-sidebar-tab="jobs" type="button" class="sidebar-tab">Jobs</button>
+          </div>
+
+          <section id="activity-panel" class="sidebar-panel">
+            <div class="stack-block">
+              <div class="pane-head compact">
+                <div>
+                  <p class="eyebrow">Ambient layer</p>
+                  <h2>Agent presence</h2>
+                </div>
+              </div>
+              <div id="agent-glance-list" class="agent-glance-list"></div>
+            </div>
+
+            <div class="stack-block">
+              <div class="pane-head compact">
+                <div>
+                  <p class="eyebrow">Recent work</p>
+                  <h2>Runs</h2>
+                </div>
+              </div>
+              <div id="run-list" class="run-list"></div>
+              <div id="run-detail" class="run-detail empty-state">Choose a run to inspect the note changes and summary.</div>
+            </div>
           </section>
 
-          <section class="panel">
-            <div class="panel-head">
-              <div>
+          <section id="agents-panel" class="sidebar-panel hidden">
+            <div class="stack-block">
+              <div class="pane-head compact">
+                <div>
+                  <p class="eyebrow">Ambient agents</p>
+                  <h2>Roster</h2>
+                </div>
+                <button id="new-agent-button" type="button" class="primary-button subtle">New</button>
+              </div>
+              <div id="agent-list" class="agent-list"></div>
+            </div>
+
+            <div class="stack-block">
+              <div class="selection-summary">
+                <p class="eyebrow">Selected agent</p>
                 <h2 id="agent-form-title">Agent Details</h2>
-                <p id="agent-form-subtitle">Create an agent to start running workflows.</p>
+                <p id="agent-form-subtitle" class="selection-subtitle">Create an ambient agent to begin.</p>
               </div>
+
+              <form id="quick-run-form" class="stacked-form compact-form">
+                <label>
+                  <span>Quick run</span>
+                  <textarea id="quick-run-prompt" rows="3" placeholder="Ask the selected agent to review this note, summarize a folder, or make a focused update."></textarea>
+                </label>
+                <button id="quick-run-button" type="submit" class="primary-button">Run agent</button>
+              </form>
+
+              <details id="agent-config-details" class="config-details">
+                <summary>Configure agent</summary>
+                <form id="agent-form" class="stacked-form">
+                  <input id="agent-id" type="hidden" />
+                  <label>
+                    <span>Name</span>
+                    <input id="agent-name" type="text" placeholder="Research Copilot" required />
+                  </label>
+                  <label>
+                    <span>Scope path</span>
+                    <input id="agent-scope-path" type="text" placeholder="Research" />
+                  </label>
+                  <label>
+                    <span>Output directory</span>
+                    <input id="agent-output-dir" type="text" placeholder="Research/Inbox" />
+                  </label>
+                  <label>
+                    <span>Standing prompt</span>
+                    <textarea id="agent-prompt" rows="5" placeholder="Describe the agent's role, tone, and constraints." required></textarea>
+                  </label>
+                  <div class="form-grid">
+                    <label>
+                      <span>Model</span>
+                      <input id="agent-model" type="text" />
+                    </label>
+                    <label>
+                      <span>Effort</span>
+                      <select id="agent-effort"></select>
+                    </label>
+                    <label>
+                      <span>Approval</span>
+                      <select id="agent-approval"></select>
+                    </label>
+                    <label>
+                      <span>Sandbox</span>
+                      <select id="agent-sandbox"></select>
+                    </label>
+                  </div>
+                  <label class="checkbox">
+                    <input id="agent-enabled" type="checkbox" checked />
+                    <span>Enabled</span>
+                  </label>
+                  <div class="inline-create-actions">
+                    <button type="submit" class="primary-button subtle">Save agent</button>
+                    <button id="reset-agent-button" type="button" class="toolbar-button">Reset</button>
+                  </div>
+                </form>
+              </details>
             </div>
-
-            <form id="agent-form" class="stacked-form">
-              <input id="agent-id" type="hidden" />
-              <label>
-                <span>Name</span>
-                <input id="agent-name" type="text" placeholder="Research Copilot" required />
-              </label>
-              <label>
-                <span>Scope Path</span>
-                <input id="agent-scope-path" type="text" placeholder="Research" />
-              </label>
-              <label>
-                <span>Output Directory</span>
-                <input id="agent-output-dir" type="text" placeholder="Research/Inbox" />
-              </label>
-              <label>
-                <span>Prompt</span>
-                <textarea id="agent-prompt" rows="5" placeholder="Describe the agent's standing role." required></textarea>
-              </label>
-              <div class="form-grid">
-                <label>
-                  <span>Model</span>
-                  <input id="agent-model" type="text" />
-                </label>
-                <label>
-                  <span>Effort</span>
-                  <select id="agent-effort"></select>
-                </label>
-                <label>
-                  <span>Approval</span>
-                  <select id="agent-approval"></select>
-                </label>
-                <label>
-                  <span>Sandbox</span>
-                  <select id="agent-sandbox"></select>
-                </label>
-              </div>
-              <label class="checkbox">
-                <input id="agent-enabled" type="checkbox" checked />
-                <span>Enabled</span>
-              </label>
-              <div class="form-actions">
-                <button type="submit" class="primary-button">Save Agent</button>
-                <button id="reset-agent-button" type="button" class="ghost-button">Reset</button>
-              </div>
-            </form>
-
-            <form id="quick-run-form" class="stacked-form top-divider">
-              <label>
-                <span>Quick Run Prompt</span>
-                <textarea id="quick-run-prompt" rows="3" placeholder="Ask the selected agent to do one focused pass."></textarea>
-              </label>
-              <button id="quick-run-button" type="submit" class="primary-button">Run Selected Agent</button>
-            </form>
           </section>
 
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Jobs</h2>
-                <p>Recurring heartbeats or one-off reusable tasks</p>
+          <section id="jobs-panel" class="sidebar-panel hidden">
+            <div class="stack-block">
+              <div class="pane-head compact">
+                <div>
+                  <p class="eyebrow">Heartbeats</p>
+                  <h2>Jobs</h2>
+                </div>
+                <button id="new-job-button" type="button" class="primary-button subtle">New</button>
               </div>
-              <button id="new-job-button" type="button" class="ghost-button">New Job</button>
+              <div id="job-list" class="job-list"></div>
             </div>
 
-            <div id="job-list" class="job-list"></div>
-
-            <form id="job-form" class="stacked-form top-divider">
-              <input id="job-id" type="hidden" />
-              <label>
-                <span>Name</span>
-                <input id="job-name" type="text" placeholder="Daily market scan" required />
-              </label>
-              <label>
-                <span>Prompt</span>
-                <textarea id="job-prompt" rows="4" placeholder="Describe what should happen on each run." required></textarea>
-              </label>
-              <div class="form-grid">
-                <label>
-                  <span>Schedule</span>
-                  <select id="job-schedule-type">
-                    <option value="interval">Heartbeat</option>
-                    <option value="manual">Manual only</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Interval (minutes)</span>
-                  <input id="job-interval-minutes" type="number" min="1" step="1" value="60" />
-                </label>
-              </div>
-              <label class="checkbox">
-                <input id="job-enabled" type="checkbox" checked />
-                <span>Enabled</span>
-              </label>
-              <div class="form-actions">
-                <button type="submit" class="primary-button">Save Job</button>
-              </div>
-            </form>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Recent Runs</h2>
-                <p>Execution history for the selected agent</p>
-              </div>
+            <div class="stack-block">
+              <details id="job-config-details" class="config-details">
+                <summary>Configure job</summary>
+                <form id="job-form" class="stacked-form">
+                  <input id="job-id" type="hidden" />
+                  <label>
+                    <span>Name</span>
+                    <input id="job-name" type="text" placeholder="Daily market scan" required />
+                  </label>
+                  <label>
+                    <span>Prompt</span>
+                    <textarea id="job-prompt" rows="4" placeholder="Describe what should happen on each run." required></textarea>
+                  </label>
+                  <div class="form-grid">
+                    <label>
+                      <span>Schedule</span>
+                      <select id="job-schedule-type">
+                        <option value="interval">Heartbeat</option>
+                        <option value="manual">Manual only</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Interval (minutes)</span>
+                      <input id="job-interval-minutes" type="number" min="1" step="1" value="60" />
+                    </label>
+                  </div>
+                  <label class="checkbox">
+                    <input id="job-enabled" type="checkbox" checked />
+                    <span>Enabled</span>
+                  </label>
+                  <div class="inline-create-actions">
+                    <button type="submit" class="primary-button subtle">Save job</button>
+                  </div>
+                </form>
+              </details>
             </div>
-            <div id="run-list" class="run-list"></div>
-            <div id="run-detail" class="run-detail empty-state">Select a run to inspect the output.</div>
           </section>
         </aside>
-      </main>
+      </div>
+
+      <footer class="status-bar">
+        <div class="status-section">
+          <span id="status-note-path">No note selected</span>
+          <span id="status-word-count">0 words</span>
+          <span id="status-save-state">Idle</span>
+        </div>
+
+        <div class="status-section">
+          <span id="status-agent-state">No agent selected</span>
+          <span id="status-next-run">No heartbeat scheduled</span>
+        </div>
+      </footer>
     </div>
 
     <div id="toast" class="toast hidden"></div>
