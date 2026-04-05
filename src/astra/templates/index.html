@@ -7,195 +7,203 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <div class="workspace-shell">
-      <header class="app-topbar">
-        <div class="topbar-left">
-          <div class="brand-lockup">
-            <div class="brand-mark">A</div>
-            <div>
-              <p class="eyebrow">Knowledge workspace</p>
-              <h1>{{ app_name }}</h1>
-            </div>
-          </div>
-
-          <div class="topbar-shortcuts">
-            <button id="open-activity-button" type="button" class="toolbar-button">Activity</button>
-            <button id="open-agents-button" type="button" class="toolbar-button">Agents</button>
-            <button id="toggle-right-sidebar-button" type="button" class="toolbar-button">Sidebar</button>
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-start">
+          <button id="toggle-left-sidebar" type="button" class="icon-btn" title="Toggle file explorer (Cmd+B)">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 4.5h12M3 9h12M3 13.5h12"/></svg>
+          </button>
+          <div class="brand">
+            <span class="brand-mark">A</span>
+            <span class="brand-name">{{ app_name }}</span>
           </div>
         </div>
 
-        <div class="command-bar-wrap">
-          <label class="command-bar">
-            <span class="command-label">Quick switch</span>
-            <input id="search-input" type="search" placeholder="Find notes, outputs, and references" />
-            <span class="command-hint">Cmd+K</span>
-          </label>
-          <div id="search-results" class="search-popover hidden"></div>
+        <div class="search-wrap">
+          <svg class="search-icon" width="15" height="15" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7.5" cy="7.5" r="5.5"/><path d="M12 12l4 4"/></svg>
+          <input id="search-input" type="search" placeholder="Search notes..." />
+          <kbd class="search-kbd">&#8984;K</kbd>
+          <div id="search-results" class="search-dropdown hidden"></div>
         </div>
 
-        <div class="topbar-right">
-          <button id="new-note-button" type="button" class="primary-button subtle">New note</button>
-          <div class="account-cluster">
-            <div id="account-status" class="status-pill">Checking auth…</div>
-            <button id="login-button" type="button" class="toolbar-button">Login</button>
-            <button id="logout-button" type="button" class="toolbar-button hidden">Logout</button>
+        <div class="topbar-end">
+          <button id="new-note-button" type="button" class="icon-btn" title="New note">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+          </button>
+          <div class="auth-group">
+            <span id="account-status" class="auth-pill">Checking&hellip;</span>
+            <button id="login-button" type="button" class="text-btn">Login</button>
+            <button id="logout-button" type="button" class="text-btn hidden">Logout</button>
           </div>
+          <button id="toggle-right-sidebar-button" type="button" class="icon-btn" title="Toggle agent panel">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2" y="2" width="14" height="14" rx="2"/><path d="M11 2v14"/></svg>
+          </button>
         </div>
       </header>
 
       <div class="app-body">
-        <aside class="left-sidebar">
-          <div class="left-rail">
-            <button type="button" class="rail-button rail-button-active">Files</button>
-            <button id="left-new-note-button" type="button" class="rail-button">+</button>
-            <button id="left-open-agents-button" type="button" class="rail-button">AI</button>
-            <button id="left-open-activity-button" type="button" class="rail-button">Run</button>
+        <aside id="left-sidebar" class="sidebar-left">
+          <div class="sidebar-head">
+            <h2 class="vault-name">{{ vault_name }}</h2>
+            <button id="explorer-toggle-button" type="button" class="icon-btn-sm" title="New note">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+            </button>
           </div>
 
-          <div class="left-pane">
-            <div class="pane-head">
-              <div>
-                <p class="eyebrow">Vault</p>
-                <h2>{{ vault_name }}</h2>
-              </div>
-              <button id="explorer-toggle-button" type="button" class="toolbar-button">New</button>
+          <form id="new-note-form" class="new-note-form hidden">
+            <input id="new-note-name" type="text" placeholder="Note name" />
+            <input id="new-note-parent" type="text" placeholder="Folder" />
+            <div class="form-row">
+              <button type="submit" class="btn-primary btn-sm">Create</button>
+              <button id="cancel-new-note-button" type="button" class="btn-ghost btn-sm">Cancel</button>
             </div>
+          </form>
 
-            <form id="new-note-form" class="inline-create hidden">
-              <label>
-                <span>Note name</span>
-                <input id="new-note-name" type="text" placeholder="idea.md" />
-              </label>
-              <label>
-                <span>Folder</span>
-                <input id="new-note-parent" type="text" placeholder="Inbox" />
-              </label>
-              <div class="inline-create-actions">
-                <button type="submit" class="primary-button subtle">Create</button>
-                <button id="cancel-new-note-button" type="button" class="toolbar-button">Cancel</button>
-              </div>
-            </form>
-
-            <div class="explorer-meta">
-              <span id="vault-summary-text">Markdown notes and agent outputs</span>
-            </div>
-            <div id="tree-root" class="tree"></div>
-          </div>
+          <nav id="tree-root" class="file-tree"></nav>
         </aside>
 
-        <main class="document-workspace">
-          <div class="document-topbar">
-            <div id="note-tabs" class="note-tabs"></div>
-
-            <div class="view-switcher">
-              <button id="view-edit-button" type="button" class="toolbar-button">Edit</button>
-              <button id="view-preview-button" type="button" class="toolbar-button">Preview</button>
-              <button id="view-split-button" type="button" class="toolbar-button">Split</button>
+        <main class="editor-main">
+          <div class="editor-tab-bar">
+            <div id="note-tabs" class="tab-list"></div>
+            <div class="view-controls">
+              <div class="view-switcher">
+                <button id="view-edit-button" type="button" class="view-btn">Edit</button>
+                <button id="view-preview-button" type="button" class="view-btn">Preview</button>
+                <button id="view-split-button" type="button" class="view-btn">Split</button>
+              </div>
             </div>
           </div>
 
-          <section class="document-surface">
-            <div class="document-header">
-              <div class="document-header-copy">
-                <p id="document-breadcrumbs" class="eyebrow">No document selected</p>
-                <h2 id="document-title">Welcome</h2>
-                <p id="document-path" class="document-subtitle">Choose a note from the vault.</p>
+          <section class="doc-surface">
+            <div class="doc-header">
+              <div class="doc-header-text">
+                <p id="document-path" class="doc-path">Choose a note from the vault.</p>
+                <h1 id="document-title" class="doc-title">Welcome</h1>
               </div>
-
-              <div class="document-header-actions">
-                <button id="run-on-note-button" type="button" class="toolbar-button">Run on note</button>
-                <span id="current-agent-chip" class="status-pill muted">No ambient agent</span>
-                <span id="document-state" class="status-pill muted">Idle</span>
-                <button id="save-button" type="button" class="primary-button">Save</button>
+              <div class="doc-actions">
+                <button id="run-on-note-button" type="button" class="btn-ghost btn-sm" title="Run ambient agent on this note">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="5,3 13,8 5,13"/></svg>
+                  Run
+                </button>
+                <span id="document-state" class="state-pill muted">Idle</span>
+                <button id="save-button" type="button" class="btn-primary btn-sm">Save</button>
               </div>
             </div>
 
-            <div id="document-content" class="document-content document-content-split">
+            <div id="document-content" class="doc-content doc-content-split">
               <textarea id="editor-textarea" spellcheck="false" placeholder="Select a note to start writing."></textarea>
               <div id="preview-pane" class="preview-pane"></div>
             </div>
           </section>
         </main>
 
-        <aside id="right-sidebar" class="right-sidebar">
-          <div class="right-sidebar-tabs">
-            <button data-sidebar-tab="activity" type="button" class="sidebar-tab sidebar-tab-active">Activity</button>
-            <button data-sidebar-tab="agents" type="button" class="sidebar-tab">Agents</button>
-            <button data-sidebar-tab="jobs" type="button" class="sidebar-tab">Jobs</button>
-          </div>
+        <aside id="right-sidebar" class="sidebar-right">
+          <div class="sidebar-scroll">
 
-          <section id="activity-panel" class="sidebar-panel">
-            <div class="stack-block">
-              <div class="pane-head compact">
-                <div>
-                  <p class="eyebrow">Ambient layer</p>
-                  <h2>Agent presence</h2>
-                </div>
+            <!-- Agent selector -->
+            <div class="panel-section agent-selector-section">
+              <div class="section-head">
+                <span class="section-label">Agents</span>
+                <button id="new-agent-button" type="button" class="icon-btn-sm" title="New agent">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+                </button>
               </div>
-              <div id="agent-glance-list" class="agent-glance-list"></div>
+              <div id="agent-picker" class="agent-picker"></div>
             </div>
 
-            <div class="stack-block">
-              <div class="pane-head compact">
-                <div>
-                  <p class="eyebrow">Recent work</p>
-                  <h2>Runs</h2>
+            <!-- Selected agent header + quick run -->
+            <div id="agent-context" class="panel-section agent-context">
+              <div class="agent-context-head">
+                <div class="agent-context-info">
+                  <h3 id="agent-form-title" class="agent-context-name">No agent selected</h3>
+                  <p id="agent-form-subtitle" class="agent-context-meta">Create an agent to get started.</p>
                 </div>
+                <span id="agent-status-indicator" class="agent-status-dot"></span>
+              </div>
+
+              <form id="quick-run-form" class="quick-run-form">
+                <textarea id="quick-run-prompt" rows="2" placeholder="Ask this agent to do something..."></textarea>
+                <button id="quick-run-button" type="submit" class="btn-primary btn-sm" disabled>Run</button>
+              </form>
+            </div>
+
+            <!-- Runs -->
+            <div class="panel-section">
+              <div class="section-head">
+                <span class="section-label">Runs</span>
               </div>
               <div id="run-list" class="run-list"></div>
-              <div id="run-detail" class="run-detail empty-state">Choose a run to inspect the note changes and summary.</div>
-            </div>
-          </section>
-
-          <section id="agents-panel" class="sidebar-panel hidden">
-            <div class="stack-block">
-              <div class="pane-head compact">
-                <div>
-                  <p class="eyebrow">Ambient agents</p>
-                  <h2>Roster</h2>
-                </div>
-                <button id="new-agent-button" type="button" class="primary-button subtle">New</button>
-              </div>
-              <div id="agent-list" class="agent-list"></div>
+              <div id="run-detail" class="run-detail empty-state">Select a run to see details.</div>
             </div>
 
-            <div class="stack-block">
-              <div class="selection-summary">
-                <p class="eyebrow">Selected agent</p>
-                <h2 id="agent-form-title">Agent Details</h2>
-                <p id="agent-form-subtitle" class="selection-subtitle">Create an ambient agent to begin.</p>
+            <!-- Jobs -->
+            <div class="panel-section">
+              <div class="section-head">
+                <span class="section-label">Jobs</span>
+                <button id="new-job-button" type="button" class="icon-btn-sm" title="New job">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+                </button>
               </div>
+              <div id="job-list" class="job-list"></div>
+              <details id="job-config-details" class="config-details">
+                <summary>New job</summary>
+                <form id="job-form" class="config-form">
+                  <input id="job-id" type="hidden" />
+                  <label>
+                    <span>Name</span>
+                    <input id="job-name" type="text" placeholder="Daily scan" required />
+                  </label>
+                  <label>
+                    <span>Prompt</span>
+                    <textarea id="job-prompt" rows="3" placeholder="What should happen each run." required></textarea>
+                  </label>
+                  <div class="form-grid-2">
+                    <label>
+                      <span>Schedule</span>
+                      <select id="job-schedule-type">
+                        <option value="interval">Heartbeat</option>
+                        <option value="manual">Manual</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Interval (min)</span>
+                      <input id="job-interval-minutes" type="number" min="1" step="1" value="60" />
+                    </label>
+                  </div>
+                  <label class="checkbox-label">
+                    <input id="job-enabled" type="checkbox" checked />
+                    <span>Enabled</span>
+                  </label>
+                  <div class="form-row">
+                    <button type="submit" class="btn-primary btn-sm">Save job</button>
+                  </div>
+                </form>
+              </details>
+            </div>
 
-              <form id="quick-run-form" class="stacked-form compact-form">
-                <label>
-                  <span>Quick run</span>
-                  <textarea id="quick-run-prompt" rows="3" placeholder="Ask the selected agent to review this note, summarize a folder, or make a focused update."></textarea>
-                </label>
-                <button id="quick-run-button" type="submit" class="primary-button">Run agent</button>
-              </form>
-
+            <!-- Agent config (collapsible) -->
+            <div class="panel-section">
               <details id="agent-config-details" class="config-details">
-                <summary>Configure agent</summary>
-                <form id="agent-form" class="stacked-form">
+                <summary>Agent settings</summary>
+                <form id="agent-form" class="config-form">
                   <input id="agent-id" type="hidden" />
                   <label>
                     <span>Name</span>
                     <input id="agent-name" type="text" placeholder="Research Copilot" required />
                   </label>
                   <label>
-                    <span>Scope path</span>
+                    <span>Scope</span>
                     <input id="agent-scope-path" type="text" placeholder="Research" />
                   </label>
                   <label>
-                    <span>Output directory</span>
+                    <span>Output dir</span>
                     <input id="agent-output-dir" type="text" placeholder="Research/Inbox" />
                   </label>
                   <label>
-                    <span>Standing prompt</span>
-                    <textarea id="agent-prompt" rows="5" placeholder="Describe the agent's role, tone, and constraints." required></textarea>
+                    <span>Prompt</span>
+                    <textarea id="agent-prompt" rows="4" placeholder="Describe the agent's role." required></textarea>
                   </label>
-                  <div class="form-grid">
+                  <div class="form-grid-2">
                     <label>
                       <span>Model</span>
                       <input id="agent-model" type="text" />
@@ -213,84 +221,43 @@
                       <select id="agent-sandbox"></select>
                     </label>
                   </div>
-                  <label class="checkbox">
+                  <label class="checkbox-label">
                     <input id="agent-enabled" type="checkbox" checked />
                     <span>Enabled</span>
                   </label>
-                  <div class="inline-create-actions">
-                    <button type="submit" class="primary-button subtle">Save agent</button>
-                    <button id="reset-agent-button" type="button" class="toolbar-button">Reset</button>
+                  <div class="form-row">
+                    <button type="submit" class="btn-primary btn-sm">Save</button>
+                    <button id="reset-agent-button" type="button" class="btn-ghost btn-sm">Reset</button>
                   </div>
                 </form>
               </details>
             </div>
-          </section>
 
-          <section id="jobs-panel" class="sidebar-panel hidden">
-            <div class="stack-block">
-              <div class="pane-head compact">
-                <div>
-                  <p class="eyebrow">Heartbeats</p>
-                  <h2>Jobs</h2>
-                </div>
-                <button id="new-job-button" type="button" class="primary-button subtle">New</button>
-              </div>
-              <div id="job-list" class="job-list"></div>
-            </div>
-
-            <div class="stack-block">
-              <details id="job-config-details" class="config-details">
-                <summary>Configure job</summary>
-                <form id="job-form" class="stacked-form">
-                  <input id="job-id" type="hidden" />
-                  <label>
-                    <span>Name</span>
-                    <input id="job-name" type="text" placeholder="Daily market scan" required />
-                  </label>
-                  <label>
-                    <span>Prompt</span>
-                    <textarea id="job-prompt" rows="4" placeholder="Describe what should happen on each run." required></textarea>
-                  </label>
-                  <div class="form-grid">
-                    <label>
-                      <span>Schedule</span>
-                      <select id="job-schedule-type">
-                        <option value="interval">Heartbeat</option>
-                        <option value="manual">Manual only</option>
-                      </select>
-                    </label>
-                    <label>
-                      <span>Interval (minutes)</span>
-                      <input id="job-interval-minutes" type="number" min="1" step="1" value="60" />
-                    </label>
-                  </div>
-                  <label class="checkbox">
-                    <input id="job-enabled" type="checkbox" checked />
-                    <span>Enabled</span>
-                  </label>
-                  <div class="inline-create-actions">
-                    <button type="submit" class="primary-button subtle">Save job</button>
-                  </div>
-                </form>
-              </details>
-            </div>
-          </section>
+          </div>
         </aside>
       </div>
 
-      <footer class="status-bar">
-        <div class="status-section">
-          <span id="status-note-path">No note selected</span>
+      <footer class="statusbar">
+        <div class="status-left">
+          <span id="status-note-path">No note</span>
+          <span class="status-sep">&middot;</span>
           <span id="status-word-count">0 words</span>
+          <span class="status-sep">&middot;</span>
           <span id="status-save-state">Idle</span>
         </div>
-
-        <div class="status-section">
-          <span id="status-agent-state">No agent selected</span>
-          <span id="status-next-run">No heartbeat scheduled</span>
+        <div class="status-right">
+          <span id="status-agent-state">No agent</span>
+          <span class="status-sep">&middot;</span>
+          <span id="status-next-run">No heartbeat</span>
         </div>
       </footer>
     </div>
+
+    <!-- Hidden elements for JS compatibility -->
+    <span id="document-breadcrumbs" class="hidden"></span>
+    <span id="current-agent-chip" class="hidden"></span>
+    <div id="agent-glance-list" class="hidden"></div>
+    <div id="agent-list" class="hidden"></div>
 
     <div id="toast" class="toast hidden"></div>
     <script src="/static/app.js" defer></script>

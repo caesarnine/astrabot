@@ -16,8 +16,8 @@ const state = {
   selectedRunId: null,
   openTabs: [],
   documentViewMode: "split",
-  sidebarTab: "activity",
   rightSidebarOpen: true,
+  leftSidebarOpen: true,
   dirty: false,
   isSaving: false,
   saveStateLabel: "Idle",
@@ -26,14 +26,13 @@ const state = {
   socket: null,
 };
 
-const elements = {
+const el = {
   accountStatus: document.querySelector("#account-status"),
   loginButton: document.querySelector("#login-button"),
   logoutButton: document.querySelector("#logout-button"),
   searchInput: document.querySelector("#search-input"),
   searchResults: document.querySelector("#search-results"),
   newNoteButton: document.querySelector("#new-note-button"),
-  leftNewNoteButton: document.querySelector("#left-new-note-button"),
   explorerToggleButton: document.querySelector("#explorer-toggle-button"),
   newNoteForm: document.querySelector("#new-note-form"),
   newNoteName: document.querySelector("#new-note-name"),
@@ -47,30 +46,39 @@ const elements = {
   documentContent: document.querySelector("#document-content"),
   documentTitle: document.querySelector("#document-title"),
   documentPath: document.querySelector("#document-path"),
-  documentBreadcrumbs: document.querySelector("#document-breadcrumbs"),
-  documentState: document.querySelector("#document-state"),
-  currentAgentChip: document.querySelector("#current-agent-chip"),
   editor: document.querySelector("#editor-textarea"),
   previewPane: document.querySelector("#preview-pane"),
   saveButton: document.querySelector("#save-button"),
   runOnNoteButton: document.querySelector("#run-on-note-button"),
-  openActivityButton: document.querySelector("#open-activity-button"),
-  openAgentsButton: document.querySelector("#open-agents-button"),
-  leftOpenAgentsButton: document.querySelector("#left-open-agents-button"),
-  leftOpenActivityButton: document.querySelector("#left-open-activity-button"),
-  toggleRightSidebarButton: document.querySelector("#toggle-right-sidebar-button"),
+  documentState: document.querySelector("#document-state"),
+  toggleRightSidebar: document.querySelector("#toggle-right-sidebar-button"),
+  toggleLeftSidebar: document.querySelector("#toggle-left-sidebar"),
+  leftSidebar: document.querySelector("#left-sidebar"),
   rightSidebar: document.querySelector("#right-sidebar"),
-  sidebarTabs: Array.from(document.querySelectorAll("[data-sidebar-tab]")),
-  activityPanel: document.querySelector("#activity-panel"),
-  agentsPanel: document.querySelector("#agents-panel"),
-  jobsPanel: document.querySelector("#jobs-panel"),
-  agentGlanceList: document.querySelector("#agent-glance-list"),
-  agentList: document.querySelector("#agent-list"),
+  // Unified sidebar
+  agentPicker: document.querySelector("#agent-picker"),
   newAgentButton: document.querySelector("#new-agent-button"),
-  agentForm: document.querySelector("#agent-form"),
-  agentConfigDetails: document.querySelector("#agent-config-details"),
+  agentContext: document.querySelector("#agent-context"),
   agentFormTitle: document.querySelector("#agent-form-title"),
   agentFormSubtitle: document.querySelector("#agent-form-subtitle"),
+  agentStatusIndicator: document.querySelector("#agent-status-indicator"),
+  quickRunForm: document.querySelector("#quick-run-form"),
+  quickRunPrompt: document.querySelector("#quick-run-prompt"),
+  quickRunButton: document.querySelector("#quick-run-button"),
+  runList: document.querySelector("#run-list"),
+  runDetail: document.querySelector("#run-detail"),
+  jobList: document.querySelector("#job-list"),
+  newJobButton: document.querySelector("#new-job-button"),
+  jobForm: document.querySelector("#job-form"),
+  jobConfigDetails: document.querySelector("#job-config-details"),
+  jobId: document.querySelector("#job-id"),
+  jobName: document.querySelector("#job-name"),
+  jobPrompt: document.querySelector("#job-prompt"),
+  jobScheduleType: document.querySelector("#job-schedule-type"),
+  jobIntervalMinutes: document.querySelector("#job-interval-minutes"),
+  jobEnabled: document.querySelector("#job-enabled"),
+  agentForm: document.querySelector("#agent-form"),
+  agentConfigDetails: document.querySelector("#agent-config-details"),
   agentId: document.querySelector("#agent-id"),
   agentName: document.querySelector("#agent-name"),
   agentScopePath: document.querySelector("#agent-scope-path"),
@@ -82,21 +90,6 @@ const elements = {
   agentSandbox: document.querySelector("#agent-sandbox"),
   agentEnabled: document.querySelector("#agent-enabled"),
   resetAgentButton: document.querySelector("#reset-agent-button"),
-  quickRunForm: document.querySelector("#quick-run-form"),
-  quickRunPrompt: document.querySelector("#quick-run-prompt"),
-  quickRunButton: document.querySelector("#quick-run-button"),
-  newJobButton: document.querySelector("#new-job-button"),
-  jobList: document.querySelector("#job-list"),
-  jobForm: document.querySelector("#job-form"),
-  jobConfigDetails: document.querySelector("#job-config-details"),
-  jobId: document.querySelector("#job-id"),
-  jobName: document.querySelector("#job-name"),
-  jobPrompt: document.querySelector("#job-prompt"),
-  jobScheduleType: document.querySelector("#job-schedule-type"),
-  jobIntervalMinutes: document.querySelector("#job-interval-minutes"),
-  jobEnabled: document.querySelector("#job-enabled"),
-  runList: document.querySelector("#run-list"),
-  runDetail: document.querySelector("#run-detail"),
   statusNotePath: document.querySelector("#status-note-path"),
   statusWordCount: document.querySelector("#status-word-count"),
   statusSaveState: document.querySelector("#status-save-state"),
@@ -106,123 +99,90 @@ const elements = {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-  populateSelect(elements.agentEffort, EFFORTS);
-  populateSelect(elements.agentApproval, APPROVALS);
-  populateSelect(elements.agentSandbox, SANDBOXES);
+  populateSelect(el.agentEffort, EFFORTS);
+  populateSelect(el.agentApproval, APPROVALS);
+  populateSelect(el.agentSandbox, SANDBOXES);
   bindEvents();
   applyViewMode();
-  openSidebarTab("activity");
   bootstrap();
   connectEvents();
 });
 
 function bindEvents() {
-  elements.loginButton.addEventListener("click", login);
-  elements.logoutButton.addEventListener("click", logout);
-
-  elements.searchInput.addEventListener("input", handleSearchInput);
-  elements.searchInput.addEventListener("focus", handleSearchInput);
-
-  elements.newNoteButton.addEventListener("click", showNewNoteComposer);
-  elements.leftNewNoteButton.addEventListener("click", showNewNoteComposer);
-  elements.explorerToggleButton.addEventListener("click", showNewNoteComposer);
-  elements.newNoteForm.addEventListener("submit", submitNewNote);
-  elements.cancelNewNoteButton.addEventListener("click", hideNewNoteComposer);
-
-  elements.saveButton.addEventListener("click", () => saveCurrentDocument({ autosave: false }));
-  elements.editor.addEventListener("input", handleEditorInput);
-  window.addEventListener("beforeunload", (event) => {
-    if (!state.dirty) {
-      return;
-    }
-    event.preventDefault();
-    event.returnValue = "";
+  el.loginButton.addEventListener("click", login);
+  el.logoutButton.addEventListener("click", logout);
+  el.searchInput.addEventListener("input", handleSearchInput);
+  el.searchInput.addEventListener("focus", handleSearchInput);
+  el.newNoteButton.addEventListener("click", showNewNoteComposer);
+  el.explorerToggleButton.addEventListener("click", showNewNoteComposer);
+  el.newNoteForm.addEventListener("submit", submitNewNote);
+  el.cancelNewNoteButton.addEventListener("click", hideNewNoteComposer);
+  el.saveButton.addEventListener("click", () => saveCurrentDocument({ autosave: false }));
+  el.editor.addEventListener("input", handleEditorInput);
+  el.viewEditButton.addEventListener("click", () => setViewMode("edit"));
+  el.viewPreviewButton.addEventListener("click", () => setViewMode("preview"));
+  el.viewSplitButton.addEventListener("click", () => setViewMode("split"));
+  el.noteTabs.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-note-path]");
+    if (btn) loadDocument(btn.dataset.notePath);
   });
-
-  elements.viewEditButton.addEventListener("click", () => setViewMode("edit"));
-  elements.viewPreviewButton.addEventListener("click", () => setViewMode("preview"));
-  elements.viewSplitButton.addEventListener("click", () => setViewMode("split"));
-
-  elements.noteTabs.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-note-path]");
-    if (button) {
-      loadDocument(button.dataset.notePath);
-    }
-  });
-
-  elements.toggleRightSidebarButton.addEventListener("click", toggleRightSidebar);
-  elements.openActivityButton.addEventListener("click", () => {
-    setRightSidebarOpen(true);
-    openSidebarTab("activity");
-  });
-  elements.openAgentsButton.addEventListener("click", () => {
-    setRightSidebarOpen(true);
-    openSidebarTab("agents");
-  });
-  elements.leftOpenAgentsButton.addEventListener("click", () => {
-    setRightSidebarOpen(true);
-    openSidebarTab("agents");
-  });
-  elements.leftOpenActivityButton.addEventListener("click", () => {
-    setRightSidebarOpen(true);
-    openSidebarTab("activity");
-  });
-
-  for (const tab of elements.sidebarTabs) {
-    tab.addEventListener("click", () => openSidebarTab(tab.dataset.sidebarTab));
-  }
-
-  elements.newAgentButton.addEventListener("click", () => {
-    openSidebarTab("agents");
+  el.toggleRightSidebar.addEventListener("click", toggleRightSidebar);
+  el.toggleLeftSidebar.addEventListener("click", toggleLeftSidebar);
+  el.newAgentButton.addEventListener("click", () => {
     setRightSidebarOpen(true);
     resetAgentForm();
+    el.agentConfigDetails.open = true;
   });
-  elements.agentForm.addEventListener("submit", saveAgent);
-  elements.resetAgentButton.addEventListener("click", () => resetAgentForm(state.selectedAgentId));
-  elements.quickRunForm.addEventListener("submit", quickRun);
-  elements.runOnNoteButton.addEventListener("click", runOnCurrentNote);
-
-  elements.newJobButton.addEventListener("click", () => {
-    openSidebarTab("jobs");
+  el.agentForm.addEventListener("submit", saveAgent);
+  el.resetAgentButton.addEventListener("click", () => resetAgentForm(state.selectedAgentId));
+  el.quickRunForm.addEventListener("submit", quickRun);
+  el.runOnNoteButton.addEventListener("click", runOnCurrentNote);
+  el.newJobButton.addEventListener("click", () => {
     setRightSidebarOpen(true);
     resetJobForm();
+    el.jobConfigDetails.open = true;
   });
-  elements.jobForm.addEventListener("submit", saveJob);
-  elements.jobScheduleType.addEventListener("change", syncJobScheduleUi);
+  el.jobForm.addEventListener("submit", saveJob);
+  el.jobScheduleType.addEventListener("change", syncJobScheduleUi);
+  el.runDetail.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-open-note]");
+    if (btn) loadDocument(btn.dataset.openNote);
+  });
 
-  elements.runDetail.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-open-note]");
-    if (button) {
-      loadDocument(button.dataset.openNote);
+  document.addEventListener("click", (e) => {
+    if (!el.searchResults.contains(e.target) && e.target !== el.searchInput) {
+      el.searchResults.classList.add("hidden");
     }
   });
 
-  document.addEventListener("click", (event) => {
-    if (
-      !elements.searchResults.contains(event.target) &&
-      event.target !== elements.searchInput &&
-      !elements.searchInput.contains(event.target)
-    ) {
-      elements.searchResults.classList.add("hidden");
-    }
+  window.addEventListener("beforeunload", (e) => {
+    if (!state.dirty) return;
+    e.preventDefault();
+    e.returnValue = "";
   });
 
-  document.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      elements.searchInput.focus();
-      elements.searchInput.select();
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      el.searchInput.focus();
+      el.searchInput.select();
     }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-      event.preventDefault();
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
       saveCurrentDocument({ autosave: false });
     }
-    if (event.key === "Escape") {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      toggleLeftSidebar();
+    }
+    if (e.key === "Escape") {
       hideNewNoteComposer();
-      elements.searchResults.classList.add("hidden");
+      el.searchResults.classList.add("hidden");
     }
   });
 }
+
+// ---- Bootstrap ----
 
 async function bootstrap() {
   try {
@@ -235,15 +195,15 @@ async function bootstrap() {
 
     renderAccount();
     renderTree();
-    renderAgentLists();
-    renderRuns(state.runs);
+    renderAgentPicker();
     resetAgentForm();
     resetJobForm();
     updateStatusBar();
 
     if (state.agents.length && !state.selectedAgentId) {
-      state.selectedAgentId = state.agents[0].id;
-      await loadAgentDetails(state.selectedAgentId);
+      await selectAgent(state.agents[0].id);
+    } else {
+      renderRuns(state.runs);
     }
 
     const initialPath = firstFilePath(data.tree);
@@ -257,12 +217,12 @@ async function bootstrap() {
   }
 }
 
+// ---- Auth ----
+
 async function login() {
   try {
     const result = await api("/api/account/login", { method: "POST" });
-    if (result.authUrl) {
-      window.open(result.authUrl, "_blank", "noopener,noreferrer");
-    }
+    if (result.authUrl) window.open(result.authUrl, "_blank", "noopener,noreferrer");
     await refreshAccount();
     toast("Login started in your browser.");
   } catch (error) {
@@ -274,7 +234,7 @@ async function logout() {
   try {
     await api("/api/account/logout", { method: "POST" });
     await refreshAccount();
-    toast("Logged out of Codex.");
+    toast("Logged out.");
   } catch (error) {
     toast(error.message || "Could not log out.");
   }
@@ -286,50 +246,41 @@ async function refreshAccount() {
 }
 
 function renderAccount() {
-  if (!state.account) {
-    return;
-  }
-
+  if (!state.account) return;
   if (state.account.loggedIn) {
-    elements.accountStatus.textContent = state.account.email || "Logged in";
-    elements.accountStatus.className = "status-pill success";
-    elements.loginButton.classList.add("hidden");
-    elements.logoutButton.classList.remove("hidden");
+    el.accountStatus.textContent = state.account.email || "Logged in";
+    el.accountStatus.className = "auth-pill";
+    el.loginButton.classList.add("hidden");
+    el.logoutButton.classList.remove("hidden");
   } else {
-    elements.accountStatus.textContent = "Not logged in";
-    elements.accountStatus.className = "status-pill warning";
-    elements.loginButton.classList.remove("hidden");
-    elements.logoutButton.classList.add("hidden");
+    el.accountStatus.textContent = "Not logged in";
+    el.accountStatus.className = "auth-pill warning";
+    el.loginButton.classList.remove("hidden");
+    el.logoutButton.classList.add("hidden");
   }
 }
 
+// ---- New note ----
+
 function showNewNoteComposer() {
-  elements.newNoteParent.value = preferredNewNoteParent();
-  elements.newNoteName.value = "";
-  elements.newNoteForm.classList.remove("hidden");
-  elements.newNoteName.focus();
+  el.newNoteParent.value = preferredNewNoteParent();
+  el.newNoteName.value = "";
+  el.newNoteForm.classList.remove("hidden");
+  el.newNoteName.focus();
 }
 
 function hideNewNoteComposer() {
-  elements.newNoteForm.classList.add("hidden");
-  elements.newNoteName.value = "";
+  el.newNoteForm.classList.add("hidden");
 }
 
 async function submitNewNote(event) {
   event.preventDefault();
-  const name = elements.newNoteName.value.trim();
-  if (!name) {
-    toast("Name the note first.");
-    return;
-  }
-
+  const name = el.newNoteName.value.trim();
+  if (!name) { toast("Name the note first."); return; }
   try {
     const result = await api("/api/documents", {
       method: "POST",
-      body: JSON.stringify({
-        parent: elements.newNoteParent.value,
-        name,
-      }),
+      body: JSON.stringify({ parent: el.newNoteParent.value, name }),
     });
     hideNewNoteComposer();
     await refreshTree();
@@ -341,23 +292,22 @@ async function submitNewNote(event) {
 }
 
 function preferredNewNoteParent() {
-  if (!state.currentDocument?.path) {
-    return state.defaults?.inboxDir || "";
-  }
+  if (!state.currentDocument?.path) return state.defaults?.inboxDir || "";
   const parts = state.currentDocument.path.split("/");
   parts.pop();
   return parts.join("/") || state.defaults?.inboxDir || "";
 }
 
+// ---- File tree ----
+
 function renderTree() {
-  elements.treeRoot.innerHTML = "";
+  el.treeRoot.innerHTML = "";
   if (!state.tree || !state.tree.children?.length) {
-    elements.treeRoot.innerHTML = '<div class="empty-state">Your vault is empty.</div>';
+    el.treeRoot.innerHTML = '<div class="empty-state" style="padding:8px 14px;">Vault is empty.</div>';
     return;
   }
-
   for (const child of state.tree.children) {
-    elements.treeRoot.appendChild(renderTreeNode(child));
+    el.treeRoot.appendChild(renderTreeNode(child));
   }
 }
 
@@ -365,41 +315,33 @@ function renderTreeNode(node) {
   if (node.kind === "dir") {
     const details = document.createElement("details");
     details.open = true;
-
     const summary = document.createElement("summary");
     summary.textContent = node.name || "Vault";
     details.appendChild(summary);
-
     for (const child of node.children || []) {
       details.appendChild(renderTreeNode(child));
     }
     return details;
   }
-
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = node.name;
-  if (node.path === state.selectedDocumentPath) {
-    button.classList.add("active");
-  }
-  button.addEventListener("click", () => {
-    loadDocument(node.path);
-  });
+  if (node.path === state.selectedDocumentPath) button.classList.add("active");
+  button.addEventListener("click", () => loadDocument(node.path));
   return button;
 }
 
-async function loadDocument(path, options = {}) {
-  if (!options.bypassConfirm && !(await confirmDiscardChanges())) {
-    return;
-  }
+// ---- Document ----
 
+async function loadDocument(path, options = {}) {
+  if (!options.bypassConfirm && !(await confirmDiscardChanges())) return;
   try {
-    const documentPayload = await api(`/api/documents/${encodePath(path)}`);
-    state.currentDocument = documentPayload;
-    state.selectedDocumentPath = documentPayload.path;
+    const doc = await api(`/api/documents/${encodePath(path)}`);
+    state.currentDocument = doc;
+    state.selectedDocumentPath = doc.path;
     state.dirty = false;
-    state.saveStateLabel = documentPayload.editable ? "Ready" : "Read only";
-    rememberOpenTab(documentPayload);
+    state.saveStateLabel = doc.editable ? "Ready" : "Read only";
+    rememberOpenTab(doc);
     renderCurrentDocument();
     renderTree();
   } catch (error) {
@@ -410,72 +352,54 @@ async function loadDocument(path, options = {}) {
 function renderCurrentDocument() {
   const doc = state.currentDocument;
   if (!doc) {
-    elements.documentBreadcrumbs.textContent = "No document selected";
-    elements.documentTitle.textContent = "Welcome";
-    elements.documentPath.textContent = "Choose a note from the vault.";
-    elements.editor.value = "";
-    elements.previewPane.innerHTML = '<p class="preview-empty">Select a note to start writing.</p>';
-    elements.editor.disabled = true;
-    elements.saveButton.disabled = true;
-    elements.runOnNoteButton.disabled = true;
+    el.documentTitle.textContent = "Welcome";
+    el.documentPath.textContent = "Choose a note from the vault.";
+    el.editor.value = "";
+    el.previewPane.innerHTML = '<p class="preview-empty">Select a note to start writing.</p>';
+    el.editor.disabled = true;
+    el.saveButton.disabled = true;
+    el.runOnNoteButton.disabled = true;
     setDocumentState("Idle", "muted");
     renderNoteTabs();
     updateStatusBar();
     return;
   }
-
-  elements.documentBreadcrumbs.textContent = breadcrumbText(doc.path);
-  elements.documentTitle.textContent = doc.title || doc.path || "Untitled";
-  elements.documentPath.textContent = doc.path || "/";
-  elements.editor.value = doc.content ?? "";
-  elements.editor.disabled = !doc.editable;
-  elements.saveButton.disabled = !doc.editable;
-  elements.runOnNoteButton.disabled = !state.selectedAgentId || !doc.editable;
+  el.documentTitle.textContent = doc.title || doc.path || "Untitled";
+  el.documentPath.textContent = doc.path || "/";
+  el.editor.value = doc.content ?? "";
+  el.editor.disabled = !doc.editable;
+  el.saveButton.disabled = !doc.editable;
+  el.runOnNoteButton.disabled = !state.selectedAgentId || !doc.editable;
   setDocumentState(doc.editable ? state.saveStateLabel : "Read only", doc.editable ? "success" : "muted");
   updatePreview();
   renderNoteTabs();
   updateStatusBar();
 }
 
-function rememberOpenTab(documentPayload) {
-  const existing = state.openTabs.filter((tab) => tab.path !== documentPayload.path);
-  existing.unshift({
-    path: documentPayload.path,
-    title: documentPayload.title || documentPayload.path,
-  });
-  state.openTabs = existing.slice(0, 6);
+function rememberOpenTab(doc) {
+  const existing = state.openTabs.filter((t) => t.path !== doc.path);
+  existing.unshift({ path: doc.path, title: doc.title || doc.path });
+  state.openTabs = existing.slice(0, 8);
 }
 
 function renderNoteTabs() {
-  elements.noteTabs.innerHTML = "";
-  if (!state.openTabs.length) {
-    const placeholder = document.createElement("div");
-    placeholder.className = "empty-state";
-    placeholder.textContent = "No open notes";
-    elements.noteTabs.appendChild(placeholder);
-    return;
-  }
-
+  el.noteTabs.innerHTML = "";
   for (const tab of state.openTabs) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "note-tab";
     button.dataset.notePath = tab.path;
-    if (tab.path === state.selectedDocumentPath) {
-      button.classList.add("note-tab-active");
-    }
+    if (tab.path === state.selectedDocumentPath) button.classList.add("note-tab-active");
     button.textContent = tab.title;
-    elements.noteTabs.appendChild(button);
+    el.noteTabs.appendChild(button);
   }
 }
 
 function handleEditorInput() {
-  if (!state.currentDocument || !state.currentDocument.editable) {
-    return;
-  }
+  if (!state.currentDocument?.editable) return;
   state.dirty = true;
-  state.saveStateLabel = "Unsaved changes";
-  setDocumentState("Unsaved changes", "warning");
+  state.saveStateLabel = "Unsaved";
+  setDocumentState("Unsaved", "warning");
   updatePreview();
   updateStatusBar();
   scheduleAutosave();
@@ -483,42 +407,32 @@ function handleEditorInput() {
 
 function scheduleAutosave() {
   window.clearTimeout(state.autosaveTimer);
-  if (!state.currentDocument?.editable) {
-    return;
-  }
-  state.autosaveTimer = window.setTimeout(() => {
-    saveCurrentDocument({ autosave: true });
-  }, 900);
+  if (!state.currentDocument?.editable) return;
+  state.autosaveTimer = window.setTimeout(() => saveCurrentDocument({ autosave: true }), 900);
 }
 
 async function saveCurrentDocument({ autosave }) {
-  if (!state.currentDocument || !state.currentDocument.editable || state.isSaving) {
-    return;
-  }
-
+  if (!state.currentDocument?.editable || state.isSaving) return;
   state.isSaving = true;
-  state.saveStateLabel = autosave ? "Autosaving…" : "Saving…";
-  setDocumentState(state.saveStateLabel, "warning");
+  state.saveStateLabel = "Saving...";
+  setDocumentState("Saving...", "warning");
   updateStatusBar();
-
   try {
     const result = await api(`/api/documents/${encodePath(state.currentDocument.path)}`, {
       method: "PUT",
-      body: JSON.stringify({ content: elements.editor.value }),
+      body: JSON.stringify({ content: el.editor.value }),
     });
     state.currentDocument = result;
     state.dirty = false;
-    state.saveStateLabel = autosave ? "Autosaved" : "Saved";
+    state.saveStateLabel = "Saved";
     rememberOpenTab(result);
     renderCurrentDocument();
     await refreshTree();
-    if (!autosave) {
-      toast("Saved note.");
-    }
+    if (!autosave) toast("Saved.");
   } catch (error) {
     state.saveStateLabel = "Save failed";
     setDocumentState("Save failed", "danger");
-    toast(error.message || "Could not save document.");
+    toast(error.message || "Could not save.");
   } finally {
     state.isSaving = false;
     updateStatusBar();
@@ -531,58 +445,29 @@ function setViewMode(mode) {
 }
 
 function applyViewMode() {
-  elements.documentContent.className = `document-content document-content-${state.documentViewMode}`;
-  elements.viewEditButton.classList.toggle("toolbar-button-active", state.documentViewMode === "edit");
-  elements.viewPreviewButton.classList.toggle("toolbar-button-active", state.documentViewMode === "preview");
-  elements.viewSplitButton.classList.toggle("toolbar-button-active", state.documentViewMode === "split");
-
-  elements.editor.classList.toggle("hidden", state.documentViewMode === "preview");
-  elements.previewPane.classList.toggle("hidden", state.documentViewMode === "edit");
+  el.documentContent.className = `doc-content doc-content-${state.documentViewMode}`;
+  el.viewEditButton.classList.toggle("view-btn-active", state.documentViewMode === "edit");
+  el.viewPreviewButton.classList.toggle("view-btn-active", state.documentViewMode === "preview");
+  el.viewSplitButton.classList.toggle("view-btn-active", state.documentViewMode === "split");
+  el.editor.classList.toggle("hidden", state.documentViewMode === "preview");
+  el.previewPane.classList.toggle("hidden", state.documentViewMode === "edit");
 }
 
 function updatePreview() {
-  const text = elements.editor.value || "";
-  const html = markdownToHtml(text);
-  elements.previewPane.innerHTML = html || '<p class="preview-empty">Nothing to preview yet.</p>';
+  const text = el.editor.value || "";
+  el.previewPane.innerHTML = markdownToHtml(text) || '<p class="preview-empty">Nothing to preview.</p>';
 }
 
-async function runOnCurrentNote() {
-  if (!state.selectedAgentId) {
-    setRightSidebarOpen(true);
-    openSidebarTab("agents");
-    toast("Select an ambient agent first.");
-    return;
-  }
-  if (!state.currentDocument?.path) {
-    toast("Open a note first.");
-    return;
-  }
-
-  const prompt = `Review the note at \`${state.currentDocument.path}\`. Improve its clarity and structure, preserve the author's intent, and write the results back into the vault if a meaningful update is warranted.`;
-  try {
-    const result = await api(`/api/agents/${state.selectedAgentId}/runs`, {
-      method: "POST",
-      body: JSON.stringify({ prompt }),
-    });
-    setRightSidebarOpen(true);
-    openSidebarTab("activity");
-    toast(`Run ${result.run.id} started.`);
-    await refreshRunsForSelection();
-    await refreshAgents();
-  } catch (error) {
-    toast(error.message || "Could not start the note run.");
-  }
-}
+// ---- Search ----
 
 function handleSearchInput() {
   window.clearTimeout(state.searchTimer);
-  const query = elements.searchInput.value.trim();
+  const query = el.searchInput.value.trim();
   if (!query) {
-    elements.searchResults.classList.add("hidden");
-    elements.searchResults.innerHTML = "";
+    el.searchResults.classList.add("hidden");
+    el.searchResults.innerHTML = "";
     return;
   }
-
   state.searchTimer = window.setTimeout(async () => {
     try {
       const result = await api(`/api/search?q=${encodeURIComponent(query)}`);
@@ -594,99 +479,66 @@ function handleSearchInput() {
 }
 
 function renderSearchResults(results) {
-  elements.searchResults.innerHTML = "";
+  el.searchResults.innerHTML = "";
   if (!results.length) {
-    elements.searchResults.innerHTML = '<div class="empty-state">No results found.</div>';
-    elements.searchResults.classList.remove("hidden");
+    el.searchResults.innerHTML = '<div class="empty-state" style="padding:8px;">No results.</div>';
+    el.searchResults.classList.remove("hidden");
     return;
   }
-
-  for (const result of results) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "search-result";
-    button.innerHTML = `
-      <div class="card-row">
-        <p class="card-title">${escapeHtml(result.title || result.path)}</p>
-        <span class="card-meta">${escapeHtml(result.path)}</span>
-      </div>
-      <div class="card-meta">${highlightSnippet(result.snippet || "")}</div>
-    `;
-    button.addEventListener("click", async () => {
-      elements.searchResults.classList.add("hidden");
-      elements.searchInput.value = "";
-      await loadDocument(result.path);
+  for (const r of results) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "search-result";
+    btn.innerHTML = `
+      <div class="card-row"><span class="card-title">${esc(r.title || r.path)}</span>
+        <span class="card-meta" style="margin:0">${esc(r.path)}</span></div>
+      <div class="card-meta">${highlightSnippet(r.snippet || "")}</div>`;
+    btn.addEventListener("click", async () => {
+      el.searchResults.classList.add("hidden");
+      el.searchInput.value = "";
+      await loadDocument(r.path);
     });
-    elements.searchResults.appendChild(button);
+    el.searchResults.appendChild(btn);
   }
-  elements.searchResults.classList.remove("hidden");
+  el.searchResults.classList.remove("hidden");
 }
 
-function renderAgentLists() {
-  renderAgentGlance();
-  renderAgentRoster();
-  updateCurrentAgentChip();
-  updateStatusBar();
+// ---- Sidebar toggles ----
+
+function setRightSidebarOpen(open) {
+  state.rightSidebarOpen = open;
+  el.rightSidebar.classList.toggle("right-sidebar-collapsed", !open);
 }
 
-function renderAgentGlance() {
-  elements.agentGlanceList.innerHTML = "";
+function toggleRightSidebar() {
+  setRightSidebarOpen(!state.rightSidebarOpen);
+}
+
+function toggleLeftSidebar() {
+  state.leftSidebarOpen = !state.leftSidebarOpen;
+  el.leftSidebar.classList.toggle("collapsed", !state.leftSidebarOpen);
+}
+
+// ===================================================================
+// Agent sidebar (unified)
+// ===================================================================
+
+function renderAgentPicker() {
+  el.agentPicker.innerHTML = "";
   if (!state.agents.length) {
-    elements.agentGlanceList.innerHTML = '<div class="empty-state">No ambient agents yet.</div>';
+    el.agentPicker.innerHTML = '<span class="empty-state">No agents yet.</span>';
     return;
   }
-
   for (const agent of state.agents) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "agent-glance";
-    if (agent.id === state.selectedAgentId) {
-      button.classList.add("agent-glance-active");
-    }
-    button.innerHTML = `
-      <div class="agent-glance-copy">
-        <p class="card-title">${escapeHtml(agent.name)}</p>
-        <p class="card-meta">${escapeHtml(agent.scopePath || "/")} • ${formatDate(agent.nextRunAt)}</p>
-      </div>
-      <span class="status-pill ${agent.isRunning ? "warning" : agent.enabled ? "success" : "muted"}">
-        ${agent.isRunning ? "Running" : agent.enabled ? "Ready" : "Paused"}
-      </span>
-    `;
-    button.addEventListener("click", async () => {
-      setRightSidebarOpen(true);
-      openSidebarTab("agents");
-      await selectAgent(agent.id);
-    });
-    elements.agentGlanceList.appendChild(button);
-  }
-}
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "agent-chip";
+    if (agent.id === state.selectedAgentId) chip.classList.add("agent-chip-active");
 
-function renderAgentRoster() {
-  elements.agentList.innerHTML = "";
-  if (!state.agents.length) {
-    elements.agentList.innerHTML = '<div class="empty-state">Create an agent to give the workspace an ambient helper.</div>';
-    return;
-  }
-
-  for (const agent of state.agents) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "agent-card";
-    if (agent.id === state.selectedAgentId) {
-      button.classList.add("agent-card-active");
-    }
-    button.innerHTML = `
-      <div class="card-row">
-        <p class="card-title">${escapeHtml(agent.name)}</p>
-        <span class="status-pill ${agent.isRunning ? "warning" : agent.enabled ? "success" : "muted"}">
-          ${agent.isRunning ? "Running" : agent.enabled ? "Enabled" : "Paused"}
-        </span>
-      </div>
-      <p class="card-meta">Scope: ${escapeHtml(agent.scopePath || "/")}</p>
-      <p class="card-meta">Next heartbeat: ${formatDate(agent.nextRunAt)}</p>
-    `;
-    button.addEventListener("click", () => selectAgent(agent.id));
-    elements.agentList.appendChild(button);
+    const dotClass = agent.isRunning ? "dot-running" : agent.enabled ? "dot-ready" : "dot-off";
+    chip.innerHTML = `<span class="agent-chip-dot ${dotClass}"></span>${esc(agent.name)}`;
+    chip.addEventListener("click", () => selectAgent(agent.id));
+    el.agentPicker.appendChild(chip);
   }
 }
 
@@ -694,13 +546,14 @@ async function selectAgent(agentId) {
   state.selectedAgentId = agentId;
   state.selectedJobId = null;
   state.selectedRunId = null;
-  renderAgentLists();
+  renderAgentPicker();
   await loadAgentDetails(agentId);
 }
 
 async function loadAgentDetails(agentId) {
   try {
     const result = await api(`/api/agents/${agentId}`);
+    fillAgentContext(result.agent);
     fillAgentForm(result.agent);
     renderJobs(result.jobs);
     renderRuns(result.runs);
@@ -710,94 +563,95 @@ async function loadAgentDetails(agentId) {
       clearRunDetail();
     }
   } catch (error) {
-    toast(error.message || "Could not load agent details.");
+    toast(error.message || "Could not load agent.");
   }
 }
 
-function fillAgentForm(agent) {
-  elements.agentFormTitle.textContent = agent.name;
-  elements.agentFormSubtitle.textContent = agent.threadId
-    ? `Thread ${agent.threadId}`
-    : "Thread will be created on first run.";
-  elements.agentId.value = agent.id;
-  elements.agentName.value = agent.name;
-  elements.agentScopePath.value = agent.scopePath;
-  elements.agentOutputDir.value = agent.outputDir;
-  elements.agentPrompt.value = agent.prompt;
-  elements.agentModel.value = agent.model;
-  elements.agentEffort.value = agent.reasoningEffort;
-  elements.agentApproval.value = agent.approvalPolicy;
-  elements.agentSandbox.value = agent.sandboxMode;
-  elements.agentEnabled.checked = Boolean(agent.enabled);
-  elements.quickRunButton.disabled = false;
-  elements.runOnNoteButton.disabled = !state.currentDocument?.editable;
-  elements.agentConfigDetails.open = false;
-  updateCurrentAgentChip();
+function fillAgentContext(agent) {
+  el.agentFormTitle.textContent = agent.name;
+
+  const parts = [];
+  if (agent.scopePath) parts.push(agent.scopePath);
+  if (agent.threadId) parts.push(`Thread ${agent.threadId.slice(0, 8)}...`);
+  else parts.push("No thread yet");
+  el.agentFormSubtitle.textContent = parts.join(" · ");
+
+  const dotClass = agent.isRunning ? "dot-running" : agent.enabled ? "dot-ready" : "dot-off";
+  el.agentStatusIndicator.className = `agent-status-dot ${dotClass}`;
+
+  el.quickRunButton.disabled = false;
+  el.runOnNoteButton.disabled = !state.currentDocument?.editable;
   updateStatusBar();
 }
 
+function fillAgentForm(agent) {
+  el.agentId.value = agent.id;
+  el.agentName.value = agent.name;
+  el.agentScopePath.value = agent.scopePath;
+  el.agentOutputDir.value = agent.outputDir;
+  el.agentPrompt.value = agent.prompt;
+  el.agentModel.value = agent.model;
+  el.agentEffort.value = agent.reasoningEffort;
+  el.agentApproval.value = agent.approvalPolicy;
+  el.agentSandbox.value = agent.sandboxMode;
+  el.agentEnabled.checked = Boolean(agent.enabled);
+  el.agentConfigDetails.open = false;
+}
+
 function resetAgentForm(agentId = null) {
-  const agent = agentId ? state.agents.find((item) => item.id === agentId) : null;
+  const agent = agentId ? state.agents.find((a) => a.id === agentId) : null;
   if (agent) {
+    fillAgentContext(agent);
     fillAgentForm(agent);
     return;
   }
-
   state.selectedAgentId = null;
-  renderAgentLists();
-  elements.agentFormTitle.textContent = "Agent Details";
-  elements.agentFormSubtitle.textContent = "Select or create an ambient agent.";
-  elements.agentId.value = "";
-  elements.agentName.value = "";
-  elements.agentScopePath.value = "";
-  elements.agentOutputDir.value = state.defaults?.inboxDir || "Inbox";
-  elements.agentPrompt.value = "";
-  elements.agentModel.value = state.defaults?.model || "";
-  elements.agentEffort.value = state.defaults?.reasoningEffort || "high";
-  elements.agentApproval.value = state.defaults?.approvalPolicy || "never";
-  elements.agentSandbox.value = state.defaults?.sandboxMode || "workspace-write";
-  elements.agentEnabled.checked = true;
-  elements.quickRunPrompt.value = "";
-  elements.quickRunButton.disabled = true;
-  elements.runOnNoteButton.disabled = true;
-  renderJobs([]);
+  renderAgentPicker();
+  el.agentFormTitle.textContent = "No agent selected";
+  el.agentFormSubtitle.textContent = "Create an agent to get started.";
+  el.agentStatusIndicator.className = "agent-status-dot";
+  el.agentId.value = "";
+  el.agentName.value = "";
+  el.agentScopePath.value = "";
+  el.agentOutputDir.value = state.defaults?.inboxDir || "Inbox";
+  el.agentPrompt.value = "";
+  el.agentModel.value = state.defaults?.model || "";
+  el.agentEffort.value = state.defaults?.reasoningEffort || "high";
+  el.agentApproval.value = state.defaults?.approvalPolicy || "never";
+  el.agentSandbox.value = state.defaults?.sandboxMode || "workspace-write";
+  el.agentEnabled.checked = true;
+  el.quickRunPrompt.value = "";
+  el.quickRunButton.disabled = true;
+  el.runOnNoteButton.disabled = true;
+  el.agentConfigDetails.open = true;
   renderRuns(state.runs);
+  renderJobs([]);
   clearRunDetail();
-  elements.agentConfigDetails.open = true;
-  updateCurrentAgentChip();
   updateStatusBar();
 }
 
 async function saveAgent(event) {
   event.preventDefault();
   const payload = {
-    name: elements.agentName.value,
-    scope_path: elements.agentScopePath.value,
-    output_dir: elements.agentOutputDir.value,
-    prompt: elements.agentPrompt.value,
-    model: elements.agentModel.value,
-    reasoning_effort: elements.agentEffort.value,
-    approval_policy: elements.agentApproval.value,
-    sandbox_mode: elements.agentSandbox.value,
-    enabled: elements.agentEnabled.checked,
+    name: el.agentName.value,
+    scope_path: el.agentScopePath.value,
+    output_dir: el.agentOutputDir.value,
+    prompt: el.agentPrompt.value,
+    model: el.agentModel.value,
+    reasoning_effort: el.agentEffort.value,
+    approval_policy: el.agentApproval.value,
+    sandbox_mode: el.agentSandbox.value,
+    enabled: el.agentEnabled.checked,
   };
-
   try {
     let result;
-    if (elements.agentId.value) {
-      result = await api(`/api/agents/${elements.agentId.value}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
+    if (el.agentId.value) {
+      result = await api(`/api/agents/${el.agentId.value}`, { method: "PATCH", body: JSON.stringify(payload) });
     } else {
-      result = await api("/api/agents", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      result = await api("/api/agents", { method: "POST", body: JSON.stringify(payload) });
     }
     await refreshAgents();
     await selectAgent(result.agent.id);
-    openSidebarTab("agents");
     toast("Agent saved.");
   } catch (error) {
     toast(error.message || "Could not save agent.");
@@ -806,123 +660,178 @@ async function saveAgent(event) {
 
 async function quickRun(event) {
   event.preventDefault();
-  if (!state.selectedAgentId) {
-    toast("Select an agent first.");
-    return;
-  }
-
+  if (!state.selectedAgentId) { toast("Select an agent first."); return; }
   try {
     const result = await api(`/api/agents/${state.selectedAgentId}/runs`, {
       method: "POST",
-      body: JSON.stringify({ prompt: elements.quickRunPrompt.value }),
+      body: JSON.stringify({ prompt: el.quickRunPrompt.value }),
     });
-    elements.quickRunPrompt.value = "";
-    openSidebarTab("activity");
+    el.quickRunPrompt.value = "";
     toast(`Run ${result.run.id} started.`);
     await refreshRunsForSelection();
     await refreshAgents();
   } catch (error) {
-    toast(error.message || "Could not start the run.");
+    toast(error.message || "Could not start run.");
   }
 }
 
+async function runOnCurrentNote() {
+  if (!state.selectedAgentId) {
+    setRightSidebarOpen(true);
+    toast("Select an agent first.");
+    return;
+  }
+  if (!state.currentDocument?.path) { toast("Open a note first."); return; }
+  const prompt = `Review the note at \`${state.currentDocument.path}\`. Improve its clarity and structure, preserve the author's intent, and write the results back into the vault if a meaningful update is warranted.`;
+  try {
+    const result = await api(`/api/agents/${state.selectedAgentId}/runs`, {
+      method: "POST",
+      body: JSON.stringify({ prompt }),
+    });
+    setRightSidebarOpen(true);
+    toast(`Run ${result.run.id} started.`);
+    await refreshRunsForSelection();
+    await refreshAgents();
+  } catch (error) {
+    toast(error.message || "Could not start run.");
+  }
+}
+
+// ---- Runs ----
+
+function renderRuns(runs) {
+  state.runs = runs;
+  el.runList.innerHTML = "";
+  if (!runs.length) {
+    el.runList.innerHTML = '<div class="empty-state">No runs yet.</div>';
+    clearRunDetail();
+    updateStatusBar();
+    return;
+  }
+  for (const run of runs) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "run-card";
+    if (run.id === state.selectedRunId) btn.classList.add("run-card-active");
+    btn.innerHTML = `
+      <div class="card-row">
+        <span class="card-title">${esc(shortRunTitle(run))}</span>
+        <span class="status-pill ${statusClass(run.status)}">${esc(run.status)}</span>
+      </div>
+      <p class="card-meta">${esc(run.trigger)} &middot; ${formatDate(run.startedAt)}</p>`;
+    btn.addEventListener("click", () => showRunDetail(run));
+    el.runList.appendChild(btn);
+  }
+  updateStatusBar();
+}
+
+function showRunDetail(run) {
+  state.selectedRunId = run.id;
+  renderRuns(state.runs);
+  const touched = run.touchedPaths?.length
+    ? `<div class="card-meta">Touched: ${esc(run.touchedPaths.join(", "))}</div>` : "";
+  const outputBtn = run.outputNotePath
+    ? `<button type="button" class="btn-ghost btn-sm" data-open-note="${esc(run.outputNotePath)}">Open note</button>` : "";
+  const text = esc(run.finalText || run.errorText || "No summary.");
+  el.runDetail.classList.remove("empty-state");
+  el.runDetail.innerHTML = `
+    <div class="card-row" style="margin-bottom:3px;">
+      <span style="font-size:11px;color:var(--text-tertiary)">${esc(run.id)}</span>
+      <span class="status-pill ${statusClass(run.status)}">${esc(run.status)}</span>
+    </div>
+    <div class="card-meta">${formatDate(run.startedAt)} &rarr; ${formatDate(run.finishedAt)}</div>
+    ${touched}
+    <div class="card-meta" style="margin-top:6px;white-space:pre-wrap;color:var(--text-secondary);">${text}</div>
+    ${outputBtn ? `<div style="margin-top:6px;">${outputBtn}</div>` : ""}`;
+  updateStatusBar();
+}
+
+function clearRunDetail() {
+  state.selectedRunId = null;
+  el.runDetail.classList.add("empty-state");
+  el.runDetail.textContent = "Select a run to see details.";
+}
+
+// ---- Jobs ----
+
 function renderJobs(jobs) {
   state.jobs = jobs;
-  elements.jobList.innerHTML = "";
+  el.jobList.innerHTML = "";
   if (!jobs.length) {
-    elements.jobList.innerHTML = '<div class="empty-state">No jobs yet for the selected agent.</div>';
+    el.jobList.innerHTML = '<div class="empty-state">No jobs for this agent.</div>';
     resetJobForm();
     updateStatusBar();
     return;
   }
-
   for (const job of jobs) {
     const card = document.createElement("div");
     card.className = "job-card";
-    if (job.id === state.selectedJobId) {
-      card.classList.add("job-card-active");
-    }
+    if (job.id === state.selectedJobId) card.classList.add("job-card-active");
     card.innerHTML = `
       <div class="card-row">
-        <p class="card-title">${escapeHtml(job.name)}</p>
+        <span class="card-title">${esc(job.name)}</span>
         <span class="status-pill ${job.enabled ? "success" : "muted"}">
-          ${job.scheduleType === "interval" ? "Heartbeat" : "Manual"}
+          ${job.scheduleType === "interval" ? `${job.intervalMinutes}m` : "Manual"}
         </span>
       </div>
-      <p class="card-meta">${job.scheduleType === "interval" ? `Every ${job.intervalMinutes} min` : "Run on demand"}</p>
-      <p class="card-meta">Next run: ${formatDate(job.nextRunAt)}</p>
-      <div class="inline-create-actions">
-        <button type="button" class="toolbar-button" data-edit-job="${job.id}">Edit</button>
-        <button type="button" class="primary-button subtle" data-run-job="${job.id}">Run</button>
-      </div>
-    `;
+      <p class="card-meta">Next: ${formatDate(job.nextRunAt)}</p>
+      <div class="form-row" style="margin-top:4px;">
+        <button type="button" class="btn-ghost btn-sm" data-edit-job="${job.id}">Edit</button>
+        <button type="button" class="btn-primary btn-sm" data-run-job="${job.id}">Run now</button>
+      </div>`;
     card.querySelector("[data-edit-job]").addEventListener("click", () => fillJobForm(job));
     card.querySelector("[data-run-job]").addEventListener("click", () => runJob(job.id));
-    elements.jobList.appendChild(card);
+    el.jobList.appendChild(card);
   }
   updateStatusBar();
 }
 
 function fillJobForm(job) {
   state.selectedJobId = job.id;
-  elements.jobId.value = job.id;
-  elements.jobName.value = job.name;
-  elements.jobPrompt.value = job.prompt;
-  elements.jobScheduleType.value = job.scheduleType;
-  elements.jobIntervalMinutes.value = job.intervalMinutes || 60;
-  elements.jobEnabled.checked = Boolean(job.enabled);
-  elements.jobConfigDetails.open = true;
+  el.jobId.value = job.id;
+  el.jobName.value = job.name;
+  el.jobPrompt.value = job.prompt;
+  el.jobScheduleType.value = job.scheduleType;
+  el.jobIntervalMinutes.value = job.intervalMinutes || 60;
+  el.jobEnabled.checked = Boolean(job.enabled);
+  el.jobConfigDetails.open = true;
   syncJobScheduleUi();
   renderJobs(state.jobs);
-  openSidebarTab("jobs");
 }
 
 function resetJobForm() {
   state.selectedJobId = null;
-  elements.jobId.value = "";
-  elements.jobName.value = "";
-  elements.jobPrompt.value = "";
-  elements.jobScheduleType.value = "interval";
-  elements.jobIntervalMinutes.value = 60;
-  elements.jobEnabled.checked = true;
+  el.jobId.value = "";
+  el.jobName.value = "";
+  el.jobPrompt.value = "";
+  el.jobScheduleType.value = "interval";
+  el.jobIntervalMinutes.value = 60;
+  el.jobEnabled.checked = true;
   syncJobScheduleUi();
 }
 
 function syncJobScheduleUi() {
-  const enabled = elements.jobScheduleType.value === "interval";
-  elements.jobIntervalMinutes.disabled = !enabled;
+  el.jobIntervalMinutes.disabled = el.jobScheduleType.value !== "interval";
 }
 
 async function saveJob(event) {
   event.preventDefault();
-  if (!state.selectedAgentId) {
-    toast("Select an agent first.");
-    return;
-  }
-
+  if (!state.selectedAgentId) { toast("Select an agent first."); return; }
   const payload = {
-    name: elements.jobName.value,
-    prompt: elements.jobPrompt.value,
-    schedule_type: elements.jobScheduleType.value,
-    interval_minutes: Number(elements.jobIntervalMinutes.value || 0),
-    enabled: elements.jobEnabled.checked,
+    name: el.jobName.value,
+    prompt: el.jobPrompt.value,
+    schedule_type: el.jobScheduleType.value,
+    interval_minutes: Number(el.jobIntervalMinutes.value || 0),
+    enabled: el.jobEnabled.checked,
   };
-
   try {
-    if (elements.jobId.value) {
-      await api(`/api/jobs/${elements.jobId.value}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
+    if (el.jobId.value) {
+      await api(`/api/jobs/${el.jobId.value}`, { method: "PATCH", body: JSON.stringify(payload) });
     } else {
-      await api(`/api/agents/${state.selectedAgentId}/jobs`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
+      await api(`/api/agents/${state.selectedAgentId}/jobs`, { method: "POST", body: JSON.stringify(payload) });
     }
     await loadAgentDetails(state.selectedAgentId);
     resetJobForm();
-    openSidebarTab("jobs");
     toast("Job saved.");
   } catch (error) {
     toast(error.message || "Could not save job.");
@@ -932,7 +841,6 @@ async function saveJob(event) {
 async function runJob(jobId) {
   try {
     const result = await api(`/api/jobs/${jobId}/run`, { method: "POST" });
-    openSidebarTab("activity");
     toast(`Run ${result.run.id} started.`);
     await refreshRunsForSelection();
     await refreshAgents();
@@ -941,85 +849,7 @@ async function runJob(jobId) {
   }
 }
 
-function renderRuns(runs) {
-  state.runs = runs;
-  elements.runList.innerHTML = "";
-  if (!runs.length) {
-    elements.runList.innerHTML = '<div class="empty-state">No runs yet.</div>';
-    clearRunDetail();
-    updateStatusBar();
-    return;
-  }
-
-  for (const run of runs) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "run-card";
-    if (run.id === state.selectedRunId) {
-      button.classList.add("run-card-active");
-    }
-    button.innerHTML = `
-      <div class="card-row">
-        <p class="card-title">${escapeHtml(shortRunTitle(run))}</p>
-        <span class="status-pill ${statusClass(run.status)}">${escapeHtml(run.status)}</span>
-      </div>
-      <p class="card-meta">${escapeHtml(run.trigger)} • ${formatDate(run.startedAt)}</p>
-    `;
-    button.addEventListener("click", () => showRunDetail(run));
-    elements.runList.appendChild(button);
-  }
-  updateStatusBar();
-}
-
-function showRunDetail(run) {
-  state.selectedRunId = run.id;
-  renderRuns(state.runs);
-  const touchedPaths = run.touchedPaths?.length
-    ? `<div class="card-meta">Touched: ${escapeHtml(run.touchedPaths.join(", "))}</div>`
-    : `<div class="card-meta">No file changes captured.</div>`;
-  const outputButton = run.outputNotePath
-    ? `<button type="button" class="toolbar-button" data-open-note="${escapeHtml(run.outputNotePath)}">Open output note</button>`
-    : "";
-  const text = escapeHtml(run.finalText || run.errorText || "No summary captured.");
-  elements.runDetail.classList.remove("empty-state");
-  elements.runDetail.innerHTML = `
-    <div class="card-row">
-      <p class="card-title">${escapeHtml(run.id)}</p>
-      <span class="status-pill ${statusClass(run.status)}">${escapeHtml(run.status)}</span>
-    </div>
-    <div class="card-meta">Started ${formatDate(run.startedAt)}</div>
-    <div class="card-meta">Finished ${formatDate(run.finishedAt)}</div>
-    ${touchedPaths}
-    <div class="card-meta" style="margin-top: 10px;">${text.replace(/\n/g, "<br />")}</div>
-    <div class="inline-create-actions" style="margin-top: 12px;">${outputButton}</div>
-  `;
-  updateStatusBar();
-}
-
-function clearRunDetail() {
-  state.selectedRunId = null;
-  elements.runDetail.classList.add("empty-state");
-  elements.runDetail.textContent = "Choose a run to inspect the note changes and summary.";
-}
-
-function openSidebarTab(tabName) {
-  state.sidebarTab = tabName;
-  for (const button of elements.sidebarTabs) {
-    button.classList.toggle("sidebar-tab-active", button.dataset.sidebarTab === tabName);
-  }
-  elements.activityPanel.classList.toggle("hidden", tabName !== "activity");
-  elements.agentsPanel.classList.toggle("hidden", tabName !== "agents");
-  elements.jobsPanel.classList.toggle("hidden", tabName !== "jobs");
-}
-
-function setRightSidebarOpen(open) {
-  state.rightSidebarOpen = open;
-  elements.rightSidebar.classList.toggle("right-sidebar-collapsed", !open);
-}
-
-function toggleRightSidebar() {
-  setRightSidebarOpen(!state.rightSidebarOpen);
-}
+// ---- Refreshes ----
 
 async function refreshTree() {
   state.tree = await api("/api/tree");
@@ -1029,7 +859,7 @@ async function refreshTree() {
 async function refreshAgents() {
   const result = await api("/api/agents");
   state.agents = result.agents;
-  renderAgentLists();
+  renderAgentPicker();
 }
 
 async function refreshRunsForSelection() {
@@ -1041,11 +871,11 @@ async function refreshRunsForSelection() {
   renderRuns(result.runs);
 }
 
+// ---- WebSocket ----
+
 function connectEvents() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const url = `${protocol}://${window.location.host}/api/events`;
-  state.socket = new WebSocket(url);
-
+  state.socket = new WebSocket(`${protocol}://${window.location.host}/api/events`);
   state.socket.addEventListener("message", async (event) => {
     const data = JSON.parse(event.data);
     if (data.type === "vault.changed") {
@@ -1056,231 +886,140 @@ function connectEvents() {
     }
     if (data.type === "agents.changed" || data.type === "jobs.changed") {
       await refreshAgents();
-      if (state.selectedAgentId) {
-        await loadAgentDetails(state.selectedAgentId);
-      }
+      if (state.selectedAgentId) await loadAgentDetails(state.selectedAgentId);
     }
     if (data.type === "run.queued" || data.type === "run.started" || data.type === "run.completed") {
       await refreshAgents();
       await refreshRunsForSelection();
     }
   });
-
-  state.socket.addEventListener("close", () => {
-    window.setTimeout(connectEvents, 1500);
-  });
+  state.socket.addEventListener("close", () => setTimeout(connectEvents, 1500));
 }
 
-function updateCurrentAgentChip() {
-  const agent = state.agents.find((item) => item.id === state.selectedAgentId);
-  if (!agent) {
-    elements.currentAgentChip.textContent = "No ambient agent";
-    elements.currentAgentChip.className = "status-pill muted";
-    return;
-  }
-
-  elements.currentAgentChip.textContent = `${agent.name} • ${agent.scopePath || "/"}`;
-  elements.currentAgentChip.className = `status-pill ${agent.isRunning ? "warning" : "success"}`;
-}
+// ---- Status bar ----
 
 function updateStatusBar() {
-  const text = elements.editor.value || "";
-  const wordCount = countWords(text);
-  const charCount = text.length;
-  elements.statusWordCount.textContent = `${wordCount} words • ${charCount} chars`;
-  elements.statusNotePath.textContent = state.currentDocument?.path || "No note selected";
-  elements.statusSaveState.textContent = state.saveStateLabel;
+  const text = el.editor.value || "";
+  el.statusWordCount.textContent = `${countWords(text)} words`;
+  el.statusNotePath.textContent = state.currentDocument?.path || "No note";
+  el.statusSaveState.textContent = state.saveStateLabel;
 
-  const agent = state.agents.find((item) => item.id === state.selectedAgentId);
-  if (!agent) {
-    elements.statusAgentState.textContent = "No agent selected";
-  } else {
-    elements.statusAgentState.textContent = agent.isRunning
-      ? `${agent.name} is running`
-      : `${agent.name} scoped to ${agent.scopePath || "/"}`;
-  }
+  const agent = state.agents.find((a) => a.id === state.selectedAgentId);
+  el.statusAgentState.textContent = agent
+    ? (agent.isRunning ? `${agent.name} running` : agent.name)
+    : "No agent";
 
   const nextRun = nextScheduledRun();
-  elements.statusNextRun.textContent = nextRun ? `Next heartbeat ${formatDate(nextRun)}` : "No heartbeat scheduled";
+  el.statusNextRun.textContent = nextRun ? `Next: ${formatDate(nextRun)}` : "No heartbeat";
 }
 
 function nextScheduledRun() {
   const dates = state.agents
-    .map((agent) => agent.nextRunAt)
+    .map((a) => a.nextRunAt)
     .filter(Boolean)
-    .map((value) => new Date(value))
-    .filter((date) => !Number.isNaN(date.getTime()))
-    .sort((a, b) => a.getTime() - b.getTime());
+    .map((v) => new Date(v))
+    .filter((d) => !Number.isNaN(d.getTime()))
+    .sort((a, b) => a - b);
   return dates[0]?.toISOString() || null;
 }
 
+// ---- Helpers ----
+
 async function confirmDiscardChanges() {
-  if (!state.dirty) {
-    return true;
-  }
+  if (!state.dirty) return true;
   return window.confirm("Discard unsaved changes?");
 }
 
 function setDocumentState(text, kind) {
-  elements.documentState.textContent = text;
-  elements.documentState.className = `status-pill ${kind || "muted"}`;
-}
-
-function breadcrumbText(path) {
-  if (!path) {
-    return "No document selected";
-  }
-  return path.split("/").join(" / ");
+  el.documentState.textContent = text;
+  el.documentState.className = `state-pill ${kind || "muted"}`;
 }
 
 function shortRunTitle(run) {
-  return run.outputNotePath || run.id;
+  if (run.outputNotePath) {
+    const parts = run.outputNotePath.split("/");
+    return parts[parts.length - 1] || run.outputNotePath;
+  }
+  return run.id;
 }
 
 function formatDate(value) {
-  if (!value) {
-    return "Not scheduled";
-  }
+  if (!value) return "\u2014";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return value;
+  const diff = Date.now() - date.getTime();
+  if (diff >= 0 && diff < 60000) return "just now";
+  if (diff >= 0 && diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff >= 0 && diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function firstFilePath(node) {
-  if (!node) {
-    return null;
-  }
+  if (!node) return null;
   for (const child of node.children || []) {
-    if (child.kind === "file") {
-      return child.path;
-    }
+    if (child.kind === "file") return child.path;
     const nested = firstFilePath(child);
-    if (nested) {
-      return nested;
-    }
+    if (nested) return nested;
   }
   return null;
 }
 
 function populateSelect(select, values) {
-  for (const value of values) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value;
-    select.appendChild(option);
+  for (const v of values) {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    select.appendChild(opt);
   }
 }
 
 function statusClass(status) {
-  if (status === "succeeded" || status === "saved" || status === "ready") {
-    return "success";
-  }
-  if (status === "failed") {
-    return "danger";
-  }
-  if (status === "queued" || status === "running" || status === "warning") {
-    return "warning";
-  }
+  if (status === "succeeded" || status === "saved") return "success";
+  if (status === "failed") return "danger";
+  if (status === "queued" || status === "running") return "warning";
   return "muted";
 }
 
 function countWords(text) {
-  const parts = text.trim().match(/\S+/g);
-  return parts ? parts.length : 0;
+  const m = text.trim().match(/\S+/g);
+  return m ? m.length : 0;
 }
 
 function markdownToHtml(markdown) {
   const normalized = markdown.replace(/\r\n/g, "\n");
   const codeBlocks = [];
-  let source = escapeHtml(normalized).replace(/```([\s\S]*?)```/g, (_, code) => {
-    const index = codeBlocks.length;
+  let source = esc(normalized).replace(/```([\s\S]*?)```/g, (_, code) => {
     codeBlocks.push(`<pre><code>${code.trim()}</code></pre>`);
-    return `__CODE_BLOCK_${index}__`;
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
   });
 
   const lines = source.split("\n");
   const html = [];
-  let paragraph = [];
-  let listItems = [];
-  let quoteLines = [];
+  let para = [], list = [], quotes = [];
 
-  const flushParagraph = () => {
-    if (!paragraph.length) {
-      return;
-    }
-    html.push(`<p>${applyInlineFormatting(paragraph.join(" "))}</p>`);
-    paragraph = [];
-  };
-
-  const flushList = () => {
-    if (!listItems.length) {
-      return;
-    }
-    html.push(`<ul>${listItems.map((item) => `<li>${applyInlineFormatting(item)}</li>`).join("")}</ul>`);
-    listItems = [];
-  };
-
-  const flushQuote = () => {
-    if (!quoteLines.length) {
-      return;
-    }
-    html.push(`<blockquote>${quoteLines.map((line) => `<p>${applyInlineFormatting(line)}</p>`).join("")}</blockquote>`);
-    quoteLines = [];
-  };
+  const flushPara = () => { if (para.length) { html.push(`<p>${inline(para.join(" "))}</p>`); para = []; } };
+  const flushList = () => { if (list.length) { html.push(`<ul>${list.map(i => `<li>${inline(i)}</li>`).join("")}</ul>`); list = []; } };
+  const flushQuote = () => { if (quotes.length) { html.push(`<blockquote>${quotes.map(l => `<p>${inline(l)}</p>`).join("")}</blockquote>`); quotes = []; } };
 
   for (const line of lines) {
-    const trimmed = line.trim();
-    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
-    const listMatch = trimmed.match(/^[-*]\s+(.+)$/);
-    const quoteMatch = trimmed.match(/^>\s?(.+)$/);
-
-    if (!trimmed) {
-      flushParagraph();
-      flushList();
-      flushQuote();
-      continue;
-    }
-
-    if (headingMatch) {
-      flushParagraph();
-      flushList();
-      flushQuote();
-      const depth = headingMatch[1].length;
-      html.push(`<h${depth}>${applyInlineFormatting(headingMatch[2])}</h${depth}>`);
-      continue;
-    }
-
-    if (listMatch) {
-      flushParagraph();
-      flushQuote();
-      listItems.push(listMatch[1]);
-      continue;
-    }
-
-    if (quoteMatch) {
-      flushParagraph();
-      flushList();
-      quoteLines.push(quoteMatch[1]);
-      continue;
-    }
-
-    flushList();
-    flushQuote();
-    paragraph.push(trimmed);
+    const t = line.trim();
+    if (!t) { flushPara(); flushList(); flushQuote(); continue; }
+    const hm = t.match(/^(#{1,6})\s+(.+)$/);
+    if (hm) { flushPara(); flushList(); flushQuote(); html.push(`<h${hm[1].length}>${inline(hm[2])}</h${hm[1].length}>`); continue; }
+    const lm = t.match(/^[-*]\s+(.+)$/);
+    if (lm) { flushPara(); flushQuote(); list.push(lm[1]); continue; }
+    const qm = t.match(/^&gt;\s?(.+)$/);
+    if (qm) { flushPara(); flushList(); quotes.push(qm[1]); continue; }
+    flushList(); flushQuote(); para.push(t);
   }
+  flushPara(); flushList(); flushQuote();
 
-  flushParagraph();
-  flushList();
-  flushQuote();
-
-  let output = html.join("");
-  output = output.replace(/__CODE_BLOCK_(\d+)__/g, (_, index) => codeBlocks[Number(index)] || "");
-  return output;
+  let out = html.join("");
+  out = out.replace(/__CODE_BLOCK_(\d+)__/g, (_, i) => codeBlocks[Number(i)] || "");
+  return out;
 }
 
-function applyInlineFormatting(text) {
+function inline(text) {
   return text
     .replace(/\[\[([^\]]+)\]\]/g, '<a href="#" class="preview-link">$1</a>')
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -1289,14 +1028,10 @@ function applyInlineFormatting(text) {
 }
 
 function encodePath(path) {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((part) => encodeURIComponent(part))
-    .join("/");
+  return path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
 }
 
-function escapeHtml(value) {
+function esc(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -1306,38 +1041,25 @@ function escapeHtml(value) {
 }
 
 function highlightSnippet(value) {
-  return escapeHtml(value)
-    .replaceAll("&lt;mark&gt;", "<mark>")
-    .replaceAll("&lt;/mark&gt;", "</mark>");
+  return esc(value).replaceAll("&lt;mark&gt;", "<mark>").replaceAll("&lt;/mark&gt;", "</mark>");
 }
 
 function toast(message) {
-  elements.toast.textContent = message;
-  elements.toast.classList.remove("hidden");
-  window.clearTimeout(elements.toast._timer);
-  elements.toast._timer = window.setTimeout(() => {
-    elements.toast.classList.add("hidden");
-  }, 3200);
+  el.toast.textContent = message;
+  el.toast.classList.remove("hidden");
+  clearTimeout(el.toast._timer);
+  el.toast._timer = setTimeout(() => el.toast.classList.add("hidden"), 3200);
 }
 
 async function api(url, options = {}) {
-  const response = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
-
-  if (!response.ok) {
+  if (!res.ok) {
     let detail = "Request failed.";
-    try {
-      const payload = await response.json();
-      detail = payload.detail || detail;
-    } catch (_error) {
-      detail = response.statusText || detail;
-    }
+    try { detail = (await res.json()).detail || detail; } catch {}
     throw new Error(detail);
   }
-  return response.json();
+  return res.json();
 }
