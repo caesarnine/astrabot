@@ -83,7 +83,15 @@ For that reason, the easiest MVP flow is:
 uv sync
 ```
 
-2. Create a local config file:
+2. Install frontend dependencies:
+
+```bash
+cd frontend
+npm install
+cd ..
+```
+
+3. Create a local config file:
 
 ```bash
 cp astra.toml.example astra.toml
@@ -142,11 +150,32 @@ Environment variables still work and override `astra.toml` when set. If you want
 
 ## Run
 
-Start the local web app:
+Build the React frontend for production serving:
+
+```bash
+cd frontend
+npm run build
+cd ..
+```
+
+Start the local web app with the built frontend:
 
 ```bash
 uv run astra web
 ```
+
+For frontend development, run the Vite dev server in one terminal and the FastAPI backend in another:
+
+```bash
+cd frontend
+npm run dev
+```
+
+```bash
+uv run astra web
+```
+
+The Vite dev server proxies `/api` and the WebSocket event stream to the FastAPI app on `127.0.0.1:8765`.
 
 Start the local REPL:
 
@@ -196,5 +225,7 @@ src/astra/
     tui.py
     telegram_bot.py
   static/
-  templates/
+frontend/
+  src/
+  vite.config.ts
 ```

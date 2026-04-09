@@ -8,9 +8,8 @@ import threading
 import webbrowser
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -66,7 +65,7 @@ class QuickRunBody(BaseModel):
 
 def create_web_app(settings: Settings) -> FastAPI:
     package_dir = Path(__file__).resolve().parent
-    templates = Jinja2Templates(directory=str(package_dir / "templates"))
+    frontend_index = package_dir / "static" / "dist" / "index.html"
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -97,15 +96,9 @@ def create_web_app(settings: Settings) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
-        return templates.TemplateResponse(
-            request,
-            "index.html",
-            {
-                "request": request,
-                "app_name": "Astra",
-                "vault_name": settings.vault_path.name,
-            },
-        )
+        if frontend_index.exists():
+            return FileResponse(frontend_index)
+        return HTMLResponse(_frontend_build_missing_html())
 
     @app.get("/favicon.ico")
     async def favicon() -> Response:
@@ -114,12 +107,16 @@ def create_web_app(settings: Settings) -> FastAPI:
     @app.get("/api/bootstrap")
     async def bootstrap(request: Request) -> dict[str, object]:
         services = _services(request)
-        account = await services.runtime.read_account()
         return {
-            "account": _serialize_account(account),
+            "account": await _safe_account_payload(services.runtime),
             "tree": services.vault.list_tree(),
             "agents": [_serialize_agent(agent, services.runtime.is_agent_running(agent.id)) for agent in services.store.list_agents()],
-            "runs": [_serialize_run(run) for run in services.store.list_runs(limit=12)],
+            "runs": [
+                _serialize_run(run, services.runtime.is_agent_running(run.agent_id))
+                for run in services.store.list_runs(limit=12)
+            ],
+            "appName": "Astra",
+            "vaultName": settings.vault_path.name,
             "defaults": {
                 "model": settings.codex_model,
                 "reasoningEffort": settings.codex_reasoning_effort,
@@ -132,7 +129,7 @@ def create_web_app(settings: Settings) -> FastAPI:
     @app.get("/api/account")
     async def read_account(request: Request) -> dict[str, object]:
         services = _services(request)
-        return _serialize_account(await services.runtime.read_account())
+        return await _safe_account_payload(services.runtime)
 
     @app.post("/api/account/login")
     async def login(request: Request) -> dict[str, object]:
@@ -228,7 +225,10 @@ def create_web_app(settings: Settings) -> FastAPI:
         return {
             "agent": _serialize_agent(agent, services.runtime.is_agent_running(agent.id)),
             "jobs": [_serialize_job(job) for job in services.store.list_jobs(agent_id)],
-            "runs": [_serialize_run(run) for run in services.store.list_runs(agent_id=agent_id)],
+            "runs": [
+                _serialize_run(run, services.runtime.is_agent_running(run.agent_id))
+                for run in services.store.list_runs(agent_id=agent_id)
+            ],
         }
 
     @app.post("/api/agents")
@@ -260,7 +260,7 @@ def create_web_app(settings: Settings) -> FastAPI:
             raise HTTPException(status_code=404, detail="Agent not found.") from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"run": _serialize_run(run)}
+        return {"run": _serialize_run(run, services.runtime.is_agent_running(run.agent_id))}
 
     @app.get("/api/agents/{agent_id}/jobs")
     async def list_jobs(request: Request, agent_id: str) -> dict[str, object]:
@@ -300,12 +300,17 @@ def create_web_app(settings: Settings) -> FastAPI:
             raise HTTPException(status_code=404, detail="Job not found.") from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"run": _serialize_run(run)}
+        return {"run": _serialize_run(run, services.runtime.is_agent_running(run.agent_id))}
 
     @app.get("/api/runs")
     async def list_runs(request: Request, agent_id: str | None = None) -> dict[str, object]:
         services = _services(request)
-        return {"runs": [_serialize_run(run) for run in services.store.list_runs(agent_id=agent_id)]}
+        return {
+            "runs": [
+                _serialize_run(run, services.runtime.is_agent_running(run.agent_id))
+                for run in services.store.list_runs(agent_id=agent_id)
+            ]
+        }
 
     @app.get("/api/runs/{run_id}")
     async def get_run(request: Request, run_id: str) -> dict[str, object]:
@@ -314,7 +319,7 @@ def create_web_app(settings: Settings) -> FastAPI:
             run = services.store.get_run(run_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Run not found.") from exc
-        return {"run": _serialize_run(run)}
+        return {"run": _serialize_run(run, services.runtime.is_agent_running(run.agent_id))}
 
     @app.websocket("/api/events")
     async def events(websocket: WebSocket) -> None:
@@ -343,6 +348,62 @@ def run_web_frontend(settings: Settings) -> None:
 
 def _services(request: Request) -> WebServices:
     return request.app.state.services
+
+
+async def _safe_account_payload(runtime: AgentRuntime) -> dict[str, object]:
+    try:
+        account = await asyncio.wait_for(runtime.read_account(), timeout=1.5)
+    except (asyncio.TimeoutError, Exception):
+        cached = runtime.last_account()
+        if cached is not None:
+            return _serialize_account(cached)
+        return {"loggedIn": False, "email": None, "authType": None}
+    return _serialize_account(account)
+
+
+def _frontend_build_missing_html() -> str:
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Astra</title>
+        <style>
+          body {
+            margin: 0;
+            font-family: system-ui, sans-serif;
+            background: #f4f1ec;
+            color: #1a1c19;
+          }
+          main {
+            max-width: 42rem;
+            margin: 12vh auto 0;
+            padding: 2rem;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+          }
+          h1 {
+            margin-top: 0;
+            font-size: 1.8rem;
+          }
+          code {
+            padding: 0.1rem 0.35rem;
+            border-radius: 6px;
+            background: #f0eeea;
+          }
+        </style>
+      </head>
+      <body>
+        <main>
+          <h1>Frontend build missing</h1>
+          <p>The React app has not been built yet.</p>
+          <p>Run <code>cd frontend && npm install && npm run build</code> for production, or <code>cd frontend && npm run dev</code> for local UI development.</p>
+        </main>
+      </body>
+    </html>
+    """.strip()
 
 
 def _normalize_agent_body(services: WebServices, body: AgentBody) -> dict[str, object]:
@@ -399,6 +460,10 @@ def _serialize_account(result: dict[str, object]) -> dict[str, object]:
 
 
 def _serialize_agent(agent: AgentRecord, is_running: bool) -> dict[str, object]:
+    last_run_status = agent.last_run_status
+    if last_run_status in {"queued", "running"} and not is_running:
+        last_run_status = "failed"
+
     return {
         "id": agent.id,
         "name": agent.name,
@@ -414,7 +479,7 @@ def _serialize_agent(agent: AgentRecord, is_running: bool) -> dict[str, object]:
         "createdAt": agent.created_at,
         "updatedAt": agent.updated_at,
         "lastRunAt": agent.last_run_at,
-        "lastRunStatus": agent.last_run_status,
+        "lastRunStatus": last_run_status,
         "nextRunAt": agent.next_run_at,
         "isRunning": is_running,
     }
@@ -436,17 +501,23 @@ def _serialize_job(job: JobRecord) -> dict[str, object]:
     }
 
 
-def _serialize_run(run: RunRecord) -> dict[str, object]:
+def _serialize_run(run: RunRecord, is_running: bool) -> dict[str, object]:
+    status = run.status
+    error_text = run.error_text
+    if status in {"queued", "running"} and not is_running:
+        status = "failed"
+        error_text = error_text or "Astra was restarted before this run completed."
+
     return {
         "id": run.id,
         "agentId": run.agent_id,
         "jobId": run.job_id,
         "trigger": run.trigger,
-        "status": run.status,
+        "status": status,
         "startedAt": run.started_at,
         "finishedAt": run.finished_at,
         "finalText": run.final_text,
-        "errorText": run.error_text,
+        "errorText": error_text,
         "touchedPaths": run.touched_paths,
         "outputNotePath": run.output_note_path,
     }

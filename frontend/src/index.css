@@ -1,0 +1,36 @@
+#root {
+  height: 100%;
+}
+
+.tree-empty,
+.search-empty {
+  padding: 8px 14px;
+}
+
+.search-path {
+  margin: 0;
+}
+
+.run-id-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.detail-row {
+  margin-bottom: 3px;
+}
+
+.run-detail-text {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
+.run-detail-actions,
+.job-card-actions {
+  margin-top: 6px;
+}
+
+.markdown-preview-body > :first-child {
+  margin-top: 0;
+}

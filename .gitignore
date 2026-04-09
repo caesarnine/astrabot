@@ -3,3 +3,5 @@ __pycache__/
 .pytest_cache/
 .astra/
 astra.toml
+frontend/node_modules/
+src/astra/static/dist/

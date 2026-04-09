@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 import re
 
@@ -10,6 +11,8 @@ from .events import EventBroker
 from .settings import Settings
 from .vault import VaultManager
 from .web_state import AgentRecord, JobRecord, RunRecord, WebStateStore, utc_now_text
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRuntime:
@@ -30,6 +33,7 @@ class AgentRuntime:
         self._agent_locks: dict[str, asyncio.Lock] = {}
         self._running_agents: set[str] = set()
         self._tasks: set[asyncio.Task[None]] = set()
+        self._last_account: dict[str, object] | None = None
 
     async def start(self) -> None:
         async with self._start_lock:
@@ -47,7 +51,9 @@ class AgentRuntime:
 
     async def read_account(self) -> dict[str, object]:
         await self.start()
-        return await self._client.read_account()
+        result = await self._client.read_account()
+        self._last_account = result
+        return result
 
     async def login_chatgpt(self) -> dict[str, object]:
         await self.start()
@@ -59,6 +65,9 @@ class AgentRuntime:
 
     def is_agent_running(self, agent_id: str) -> bool:
         return agent_id in self._running_agents
+
+    def last_account(self) -> dict[str, object] | None:
+        return self._last_account
 
     async def launch_manual_run(self, agent_id: str, prompt: str) -> RunRecord:
         agent = self._store.get_agent(agent_id)
@@ -127,7 +136,7 @@ class AgentRuntime:
             )
         )
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(self._handle_background_task_done)
 
     async def _execute_run(
         self,
@@ -139,6 +148,7 @@ class AgentRuntime:
         output_note_path: str,
     ) -> None:
         lock = self._agent_locks.setdefault(agent.id, asyncio.Lock())
+        before: dict[str, tuple[int | None, int | None]] | None = None
         try:
             async with lock:
                 await self.start()
@@ -178,17 +188,38 @@ class AgentRuntime:
                     self._store.set_job_run_state(
                         job.id,
                         last_run_at=completed.finished_at or utc_now_text(),
-                        next_run_at=next_run_at,
-                    )
+                    next_run_at=next_run_at,
+                )
                 await self._events.publish("run.completed", self._run_payload(completed))
                 await self._events.publish("vault.changed", {"paths": touched})
+        except asyncio.CancelledError:
+            touched = self._recover_touched_paths(agent.scope_path, before)
+            cancelled = self._store.finish_run(
+                run.id,
+                status="failed",
+                final_text=None,
+                error_text="Run interrupted while Astra was shutting down.",
+                touched_paths=touched,
+            )
+            if job and job.schedule_type == "interval" and job.interval_minutes:
+                next_run_at = (datetime.now(timezone.utc) + timedelta(minutes=job.interval_minutes)).isoformat()
+                self._store.set_job_run_state(
+                    job.id,
+                    last_run_at=cancelled.finished_at or utc_now_text(),
+                    next_run_at=next_run_at,
+                )
+            await self._events.publish("run.completed", self._run_payload(cancelled))
+            if touched:
+                await self._events.publish("vault.changed", {"paths": touched})
+            raise
         except Exception as exc:
+            touched = self._recover_touched_paths(agent.scope_path, before)
             failed = self._store.finish_run(
                 run.id,
                 status="failed",
                 final_text=None,
                 error_text=str(exc),
-                touched_paths=[],
+                touched_paths=touched,
             )
             if job and job.schedule_type == "interval" and job.interval_minutes:
                 next_run_at = (datetime.now(timezone.utc) + timedelta(minutes=job.interval_minutes)).isoformat()
@@ -198,8 +229,34 @@ class AgentRuntime:
                     next_run_at=next_run_at,
                 )
             await self._events.publish("run.completed", self._run_payload(failed))
+            if touched:
+                await self._events.publish("vault.changed", {"paths": touched})
         finally:
             self._running_agents.discard(agent.id)
+
+    def _recover_touched_paths(
+        self,
+        scope_path: str,
+        before: dict[str, tuple[int | None, int | None]] | None,
+    ) -> list[str]:
+        if before is None:
+            return []
+
+        try:
+            self._vault.sync_index(force=True)
+            after = self._vault.snapshot_scope(scope_path)
+            return self._vault.diff_snapshots(before, after)
+        except Exception:
+            return []
+
+    def _handle_background_task_done(self, task: asyncio.Task[None]) -> None:
+        self._tasks.discard(task)
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is not None:
+            logger.exception("Agent run task crashed", exc_info=exc)
 
     async def _ensure_thread(self, agent: AgentRecord, scope_abs: Path) -> str:
         base_instructions = self._thread_base_instructions(agent)
@@ -345,6 +402,7 @@ class JobScheduler:
 
     async def _loop(self) -> None:
         while True:
+            await asyncio.sleep(self._poll_seconds)
             now_text = utc_now_text()
             for job in self._store.list_due_jobs(now_text):
                 if self._runtime.is_agent_running(job.agent_id):
@@ -353,4 +411,3 @@ class JobScheduler:
                     await self._runtime.launch_job_run(job.id, trigger="schedule")
                 except ValueError:
                     continue
-            await asyncio.sleep(self._poll_seconds)

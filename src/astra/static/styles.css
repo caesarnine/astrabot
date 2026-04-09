@@ -1346,6 +1346,14 @@ button {
     grid-template-columns: var(--sidebar-w) 1fr;
   }
 
+  .editor-tab-bar {
+    padding: 0 10px;
+  }
+
+  .doc-header {
+    padding: 14px 20px 10px;
+  }
+
   .sidebar-right {
     position: fixed;
     top: var(--topbar-h);
@@ -1363,6 +1371,7 @@ button {
 
   .doc-content-split {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 1fr) minmax(220px, 1fr);
   }
 
   .preview-pane {
@@ -1372,6 +1381,19 @@ button {
 }
 
 @media (max-width: 680px) {
+  .topbar {
+    gap: 8px;
+    padding: 0 8px;
+  }
+
+  .topbar-start {
+    min-width: 0;
+  }
+
+  .topbar-end {
+    gap: 4px;
+  }
+
   .app-body {
     grid-template-columns: 1fr;
   }
@@ -1392,6 +1414,56 @@ button {
   }
 
   .search-wrap {
+    display: none;
+  }
+
+  .auth-pill {
+    max-width: 112px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .text-btn {
+    padding: 4px 8px;
+  }
+
+  .editor-tab-bar {
+    height: auto;
+    min-height: 36px;
+    padding: 6px 8px;
+    align-items: flex-start;
+  }
+
+  .view-btn {
+    padding: 3px 8px;
+  }
+
+  .doc-header {
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 18px 10px;
+  }
+
+  .doc-title {
+    font-size: 22px;
+  }
+
+  .doc-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    padding-top: 0;
+  }
+
+  #editor-textarea,
+  .preview-pane {
+    padding: 16px 18px 48px;
+  }
+
+  .statusbar {
+    padding: 0 8px;
+  }
+
+  .status-right {
     display: none;
   }
 }
