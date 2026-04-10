@@ -10,6 +10,8 @@ from .settings import Settings
 
 logger = logging.getLogger(__name__)
 
+_APP_SERVER_STREAM_LIMIT = 16 * 1024 * 1024
+
 
 class CodexAppServerError(RuntimeError):
     pass
@@ -46,6 +48,7 @@ class CodexAppServerClient:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=_APP_SERVER_STREAM_LIMIT,
         )
         self._reader_task = asyncio.create_task(self._reader_loop())
         self._stderr_task = asyncio.create_task(self._stderr_loop())
@@ -85,6 +88,7 @@ class CodexAppServerClient:
     async def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if self._process is None:
             raise CodexAppServerError("codex app-server is not running")
+        self._raise_if_reader_stopped()
 
         self._request_id += 1
         request_id = self._request_id
@@ -102,6 +106,7 @@ class CodexAppServerClient:
         return response.get("result", {})
 
     async def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
+        self._raise_if_reader_stopped()
         payload: dict[str, Any] = {"method": method}
         if params is not None:
             payload["params"] = params
@@ -334,29 +339,34 @@ class CodexAppServerClient:
         assert self._process is not None
         assert self._process.stdout is not None
 
-        while True:
-            line = await self._process.stdout.readline()
-            if not line:
-                break
+        failure_message = "codex app-server stopped"
+        try:
+            while True:
+                line = await self._process.stdout.readline()
+                if not line:
+                    break
 
-            message = json.loads(line.decode("utf-8"))
-            if "id" in message and ("result" in message or "error" in message):
-                future = self._pending.pop(message["id"], None)
-                if future and not future.done():
-                    future.set_result(message)
-                continue
+                message = json.loads(line.decode("utf-8"))
+                if "id" in message and ("result" in message or "error" in message):
+                    future = self._pending.pop(message["id"], None)
+                    if future and not future.done():
+                        future.set_result(message)
+                    continue
 
-            if "id" in message and "method" in message:
-                await self._handle_server_request(message)
-                continue
+                if "id" in message and "method" in message:
+                    await self._handle_server_request(message)
+                    continue
 
-            if "method" in message:
-                self._handle_notification(message)
-
-        for future in self._pending.values():
-            if not future.done():
-                future.set_exception(CodexAppServerError("codex app-server stopped"))
-        self._pending.clear()
+                if "method" in message:
+                    self._handle_notification(message)
+        except asyncio.CancelledError:
+            failure_message = "codex app-server reader was cancelled"
+            raise
+        except Exception as exc:
+            failure_message = f"codex app-server reader crashed: {exc}"
+            logger.exception("codex app-server reader crashed")
+        finally:
+            self._fail_outstanding(failure_message)
 
     async def _stderr_loop(self) -> None:
         assert self._process is not None
@@ -417,6 +427,32 @@ class CodexAppServerClient:
                 waiter.set_result(turn)
             else:
                 self._turn_backlog[turn_id] = turn
+
+    def _raise_if_reader_stopped(self) -> None:
+        task = self._reader_task
+        if task is None or not task.done():
+            return
+
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError as err:
+            raise CodexAppServerError("codex app-server reader was cancelled") from err
+
+        if exc is None:
+            raise CodexAppServerError("codex app-server reader stopped")
+        raise CodexAppServerError(f"codex app-server reader crashed: {exc}") from exc
+
+    def _fail_outstanding(self, message: str) -> None:
+        for future in self._pending.values():
+            if not future.done():
+                future.set_exception(CodexAppServerError(message))
+        self._pending.clear()
+
+        for future in self._turn_waiters.values():
+            if not future.done():
+                future.set_exception(CodexAppServerError(message))
+        self._turn_waiters.clear()
+        self._turn_backlog.clear()
 
 
 def _sandbox_policy_for_mode(mode: str) -> dict[str, Any]:
