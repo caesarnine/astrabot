@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import threading
 import webbrowser
@@ -15,9 +16,10 @@ import uvicorn
 
 from .agent_runtime import AgentRuntime, JobScheduler
 from .events import EventBroker
+from .scheduling import cron_preview, next_job_run_at
 from .settings import Settings
 from .vault import VaultManager
-from .web_state import AgentRecord, JobRecord, RunRecord, WebStateStore
+from .web_state import ActivityRecord, AgentRecord, JobRecord, RunRecord, WebStateStore
 
 
 @dataclass(slots=True)
@@ -54,13 +56,27 @@ class AgentBody(BaseModel):
 class JobBody(BaseModel):
     name: str
     prompt: str
-    schedule_type: str = "interval"
+    trigger_type: str = "interval"
     interval_minutes: int | None = Field(default=60, ge=1)
+    cron_expression: str | None = None
+    watch_path: str | None = None
+    watch_debounce_seconds: int | None = Field(default=5, ge=1, le=300)
     enabled: bool = True
 
 
 class QuickRunBody(BaseModel):
     prompt: str = ""
+    context_path: str | None = None
+
+
+class AskBody(BaseModel):
+    prompt: str
+    agent_id: str | None = None
+    context_path: str | None = None
+
+
+class AttentionReplyBody(BaseModel):
+    text: str
 
 
 def create_web_app(settings: Settings) -> FastAPI:
@@ -75,7 +91,7 @@ def create_web_app(settings: Settings) -> FastAPI:
         vault.initialize()
         events = EventBroker()
         runtime = AgentRuntime(settings, store, vault, events)
-        scheduler = JobScheduler(store, runtime, settings.web_scheduler_poll_seconds)
+        scheduler = JobScheduler(store, runtime, vault, settings.web_scheduler_poll_seconds)
         app.state.services = WebServices(
             settings=settings,
             store=store,
@@ -111,10 +127,8 @@ def create_web_app(settings: Settings) -> FastAPI:
             "account": await _safe_account_payload(services.runtime),
             "tree": services.vault.list_tree(),
             "agents": [_serialize_agent(agent, services.runtime.is_agent_running(agent.id)) for agent in services.store.list_agents()],
-            "runs": [
-                _serialize_run(run, services.runtime.is_agent_running(run.agent_id))
-                for run in services.store.list_runs(limit=12)
-            ],
+            "activity": _serialize_activity_bundle(services),
+            "recentFileActivity": _recent_file_activity_payload(services),
             "appName": "Astra",
             "vaultName": settings.vault_path.name,
             "defaults": {
@@ -205,6 +219,38 @@ def create_web_app(settings: Settings) -> FastAPI:
             return {"results": []}
         return {"results": services.vault.search(query)}
 
+    @app.get("/api/activity")
+    async def activity(request: Request) -> dict[str, object]:
+        services = _services(request)
+        return _serialize_activity_bundle(services)
+
+    @app.get("/api/activity/recent")
+    async def recent_activity(request: Request) -> dict[str, object]:
+        services = _services(request)
+        return {"items": _recent_file_activity_payload(services)}
+
+    @app.post("/api/attention/{activity_id}/reply")
+    async def reply_attention(request: Request, activity_id: str, body: AttentionReplyBody) -> dict[str, object]:
+        services = _services(request)
+        try:
+            activity = await services.runtime.reply_to_attention(activity_id, body.text)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Attention request not found.") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"activity": _serialize_activity(activity)}
+
+    @app.post("/api/attention/{activity_id}/dismiss")
+    async def dismiss_attention(request: Request, activity_id: str) -> dict[str, object]:
+        services = _services(request)
+        try:
+            activity = await services.runtime.dismiss_attention(activity_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Attention request not found.") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"activity": _serialize_activity(activity)}
+
     @app.get("/api/agents")
     async def list_agents(request: Request) -> dict[str, object]:
         services = _services(request)
@@ -260,7 +306,34 @@ def create_web_app(settings: Settings) -> FastAPI:
             raise HTTPException(status_code=404, detail="Agent not found.") from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"run": _serialize_run(run, services.runtime.is_agent_running(run.agent_id))}
+        return {"mode": "run", "run": _serialize_run(run, services.runtime.is_agent_running(run.agent_id))}
+
+    @app.post("/api/ask")
+    async def ask_agent(request: Request, body: AskBody) -> dict[str, object]:
+        services = _services(request)
+        if body.agent_id:
+            try:
+                agent = services.store.get_agent(body.agent_id)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail="Agent not found.") from exc
+        else:
+            agent = _match_agent_for_path(services.store.list_agents(), body.context_path or "")
+            if agent is None:
+                raise HTTPException(status_code=400, detail="No agent matches the current document.")
+
+        if services.runtime.is_agent_running(agent.id) and agent.active_turn_id and agent.thread_id:
+            await services.runtime.steer_agent(agent.id, body.prompt)
+            return {
+                "mode": "steer",
+                "agentId": agent.id,
+            }
+
+        run = await services.runtime.launch_manual_run(agent.id, body.prompt)
+        return {
+            "mode": "run",
+            "agentId": agent.id,
+            "run": _serialize_run(run, services.runtime.is_agent_running(run.agent_id)),
+        }
 
     @app.get("/api/agents/{agent_id}/jobs")
     async def list_jobs(request: Request, agent_id: str) -> dict[str, object]:
@@ -271,11 +344,12 @@ def create_web_app(settings: Settings) -> FastAPI:
     async def create_job(request: Request, agent_id: str, body: JobBody) -> dict[str, object]:
         services = _services(request)
         try:
-            services.store.get_agent(agent_id)
+            agent = services.store.get_agent(agent_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Agent not found.") from exc
-        normalized = _normalize_job_body(body)
+        normalized = _normalize_job_body(services, agent, body)
         job = services.store.create_job(agent_id=agent_id, **normalized)
+        services.scheduler.sync_watch_job(job, agent)
         await services.events.publish("jobs.changed", {"agentId": agent_id, "jobId": job.id})
         return {"job": _serialize_job(job)}
 
@@ -284,10 +358,12 @@ def create_web_app(settings: Settings) -> FastAPI:
         services = _services(request)
         try:
             existing = services.store.get_job(job_id)
+            agent = services.store.get_agent(existing.agent_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Job not found.") from exc
-        normalized = _normalize_job_body(body)
+        normalized = _normalize_job_body(services, agent, body)
         job = services.store.update_job(job_id, **normalized)
+        services.scheduler.sync_watch_job(job, agent)
         await services.events.publish("jobs.changed", {"agentId": existing.agent_id, "jobId": job.id})
         return {"job": _serialize_job(job)}
 
@@ -434,16 +510,56 @@ def _normalize_agent_body(services: WebServices, body: AgentBody) -> dict[str, o
     }
 
 
-def _normalize_job_body(body: JobBody) -> dict[str, object]:
-    schedule_type = body.schedule_type.strip().lower()
-    if schedule_type not in {"manual", "interval"}:
-        raise HTTPException(status_code=400, detail="Schedule type must be manual or interval.")
-    interval_minutes = body.interval_minutes if schedule_type == "interval" else None
+def _normalize_job_body(services: WebServices, agent: AgentRecord, body: JobBody) -> dict[str, object]:
+    trigger_type = body.trigger_type.strip().lower().replace("-", "_")
+    if trigger_type not in {"manual", "interval", "cron", "file_watch"}:
+        raise HTTPException(status_code=400, detail="Trigger type must be manual, interval, cron, or file_watch.")
+
+    interval_minutes = body.interval_minutes if trigger_type == "interval" else None
+    cron_expression = (body.cron_expression or "").strip() or None
+    watch_path_value = (body.watch_path or "").strip() or None
+    watch_debounce_seconds = body.watch_debounce_seconds if trigger_type == "file_watch" else None
+
+    if trigger_type == "cron" and not cron_expression:
+        raise HTTPException(status_code=400, detail="Cron jobs require a cron expression.")
+    if trigger_type == "interval" and not interval_minutes:
+        raise HTTPException(status_code=400, detail="Interval jobs require an interval.")
+
+    watch_path = None
+    if trigger_type == "file_watch":
+        candidate = watch_path_value or agent.scope_path
+        try:
+            watch_path = services.vault.to_rel_path(services.vault.resolve_dir(candidate))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if agent.scope_path and watch_path and watch_path != agent.scope_path and not watch_path.startswith(f"{agent.scope_path}/"):
+            raise HTTPException(status_code=400, detail="Watch path must be inside the agent scope.")
+
+    preview_job = JobRecord(
+        id="preview",
+        agent_id=agent.id,
+        name=body.name.strip(),
+        prompt=body.prompt.strip(),
+        trigger_type=trigger_type,
+        interval_minutes=interval_minutes,
+        cron_expression=cron_expression,
+        watch_path=watch_path,
+        watch_debounce_seconds=watch_debounce_seconds,
+        next_run_at=None,
+        last_run_at=None,
+        enabled=body.enabled,
+        created_at="",
+        updated_at="",
+    )
     return {
         "name": body.name.strip(),
         "prompt": body.prompt.strip(),
-        "schedule_type": schedule_type,
+        "trigger_type": trigger_type,
         "interval_minutes": interval_minutes,
+        "cron_expression": cron_expression,
+        "watch_path": watch_path,
+        "watch_debounce_seconds": watch_debounce_seconds,
+        "next_run_at": next_job_run_at(preview_job),
         "enabled": body.enabled,
     }
 
@@ -481,6 +597,7 @@ def _serialize_agent(agent: AgentRecord, is_running: bool) -> dict[str, object]:
         "lastRunAt": agent.last_run_at,
         "lastRunStatus": last_run_status,
         "nextRunAt": agent.next_run_at,
+        "activeTurnId": agent.active_turn_id,
         "isRunning": is_running,
     }
 
@@ -491,8 +608,12 @@ def _serialize_job(job: JobRecord) -> dict[str, object]:
         "agentId": job.agent_id,
         "name": job.name,
         "prompt": job.prompt,
-        "scheduleType": job.schedule_type,
+        "triggerType": job.trigger_type,
         "intervalMinutes": job.interval_minutes,
+        "cronExpression": job.cron_expression,
+        "cronPreview": cron_preview(job.cron_expression),
+        "watchPath": job.watch_path,
+        "watchDebounceSeconds": job.watch_debounce_seconds,
         "nextRunAt": job.next_run_at,
         "lastRunAt": job.last_run_at,
         "enabled": job.enabled,
@@ -512,12 +633,105 @@ def _serialize_run(run: RunRecord, is_running: bool) -> dict[str, object]:
         "id": run.id,
         "agentId": run.agent_id,
         "jobId": run.job_id,
+        "threadId": run.thread_id,
+        "turnId": run.turn_id,
         "trigger": run.trigger,
         "status": status,
         "startedAt": run.started_at,
         "finishedAt": run.finished_at,
-        "finalText": run.final_text,
+        "summaryText": run.summary_text,
         "errorText": error_text,
         "touchedPaths": run.touched_paths,
-        "outputNotePath": run.output_note_path,
     }
+
+
+def _serialize_activity(activity: ActivityRecord) -> dict[str, object]:
+    return {
+        "id": activity.id,
+        "agentId": activity.agent_id,
+        "jobId": activity.job_id,
+        "runId": activity.run_id,
+        "threadId": activity.thread_id,
+        "turnId": activity.turn_id,
+        "kind": activity.kind,
+        "status": activity.status,
+        "title": activity.title,
+        "body": activity.body,
+        "primaryPath": activity.primary_path,
+        "paths": activity.paths,
+        "metadata": activity.metadata,
+        "createdAt": activity.created_at,
+        "updatedAt": activity.updated_at,
+    }
+
+
+def _serialize_activity_bundle(services: WebServices) -> dict[str, object]:
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(hours=24)).isoformat()
+    activities = services.store.list_activity(limit=80, since_text=since, include_attention=True)
+    attention = [
+        _serialize_activity(activity)
+        for activity in activities
+        if activity.kind == "attention" and activity.status == "pending"
+    ]
+    today = [
+        _serialize_activity(activity)
+        for activity in activities
+        if not (activity.kind == "attention" and activity.status == "pending")
+    ]
+    upcoming = []
+    for agent in services.store.list_agents():
+        for job in services.store.list_jobs(agent.id):
+            if not job.enabled:
+                continue
+            if job.trigger_type == "manual":
+                continue
+            upcoming.append(
+                {
+                    "id": job.id,
+                    "agentId": agent.id,
+                    "agentName": agent.name,
+                    "jobName": job.name,
+                    "triggerType": job.trigger_type,
+                    "nextRunAt": job.next_run_at,
+                    "watchPath": job.watch_path or agent.scope_path,
+                }
+            )
+    upcoming.sort(key=lambda item: item["nextRunAt"] or "9999")
+    return {
+        "attention": attention,
+        "today": today,
+        "upcoming": upcoming,
+    }
+
+
+def _recent_file_activity_payload(services: WebServices) -> dict[str, object]:
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    recent = services.store.recent_file_activity(since_text=since)
+    agents = {agent.id: agent for agent in services.store.list_agents()}
+    payload: dict[str, object] = {}
+    for path, item in recent.items():
+        agent = agents.get(str(item["agentId"]))
+        payload[path] = {
+            **item,
+            "agentName": agent.name if agent else None,
+        }
+    return payload
+
+
+def _match_agent_for_path(agents: list[AgentRecord], path: str) -> AgentRecord | None:
+    normalized = path.strip().strip("/")
+    candidates: list[tuple[int, AgentRecord]] = []
+    for agent in agents:
+        if not agent.enabled:
+            continue
+        scope = agent.scope_path.strip().strip("/")
+        if not scope:
+            candidates.append((0, agent))
+            continue
+        if normalized == scope or normalized.startswith(f"{scope}/"):
+            candidates.append((len(scope), agent))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]

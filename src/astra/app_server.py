@@ -4,13 +4,16 @@ import asyncio
 from dataclasses import dataclass
 import json
 import logging
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from .settings import Settings
 
 logger = logging.getLogger(__name__)
 
 _APP_SERVER_STREAM_LIMIT = 16 * 1024 * 1024
+
+TurnEventHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
+DynamicToolSpec = dict[str, Any]
 
 
 class CodexAppServerError(RuntimeError):
@@ -25,6 +28,14 @@ class ThreadSummary:
     updated_at: int | None
 
 
+@dataclass(slots=True)
+class TurnExecutionResult:
+    thread_id: str
+    turn_id: str
+    text: str
+    turn: dict[str, Any]
+
+
 class CodexAppServerClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -33,6 +44,7 @@ class CodexAppServerClient:
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._turn_waiters: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._turn_backlog: dict[str, dict[str, Any]] = {}
+        self._turn_handlers: dict[str, TurnEventHandler] = {}
         self._loaded_threads: set[str] = set()
         self._reader_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
@@ -60,7 +72,10 @@ class CodexAppServerClient:
                     "name": "astra",
                     "title": "Astra",
                     "version": "0.1.0",
-                }
+                },
+                "capabilities": {
+                    "experimentalApi": True,
+                },
             },
         )
         await self.notify("initialized", {})
@@ -131,6 +146,7 @@ class CodexAppServerClient:
         sandbox_mode: str | None = None,
         base_instructions: str | None = None,
         developer_instructions: str | None = None,
+        dynamic_tools: list[DynamicToolSpec] | None = None,
     ) -> dict[str, Any]:
         params = self._thread_params(
             cwd=cwd,
@@ -140,6 +156,7 @@ class CodexAppServerClient:
             sandbox_mode=sandbox_mode,
             base_instructions=base_instructions,
             developer_instructions=developer_instructions,
+            dynamic_tools=dynamic_tools,
         )
         result = await self.request(
             "thread/start",
@@ -161,6 +178,7 @@ class CodexAppServerClient:
         sandbox_mode: str | None = None,
         base_instructions: str | None = None,
         developer_instructions: str | None = None,
+        dynamic_tools: list[DynamicToolSpec] | None = None,
     ) -> dict[str, Any]:
         params = self._thread_params(
             cwd=cwd,
@@ -170,6 +188,7 @@ class CodexAppServerClient:
             sandbox_mode=sandbox_mode,
             base_instructions=base_instructions,
             developer_instructions=developer_instructions,
+            dynamic_tools=dynamic_tools,
         )
         params["threadId"] = thread_id
         result = await self.request(
@@ -220,6 +239,29 @@ class CodexAppServerClient:
         approval_policy: str | None = None,
         sandbox_mode: str | None = None,
     ) -> str:
+        result = await self.run_turn_streamed(
+            thread_id,
+            text,
+            effort=effort,
+            cwd=cwd,
+            model=model,
+            approval_policy=approval_policy,
+            sandbox_mode=sandbox_mode,
+        )
+        return result.text
+
+    async def run_turn_streamed(
+        self,
+        thread_id: str,
+        text: str,
+        effort: str | None = None,
+        *,
+        cwd: str | None = None,
+        model: str | None = None,
+        approval_policy: str | None = None,
+        sandbox_mode: str | None = None,
+        on_event: TurnEventHandler | None = None,
+    ) -> TurnExecutionResult:
         params: dict[str, Any] = {
             "threadId": thread_id,
             "input": [{"type": "text", "text": text}],
@@ -242,23 +284,67 @@ class CodexAppServerClient:
         if not turn_id:
             raise CodexAppServerError("turn/start did not return a turn id")
 
-        completed_turn = await self._wait_for_turn_completion(turn_id)
+        if on_event is not None:
+            self._turn_handlers[turn_id] = on_event
+            await on_event(
+                {
+                    "kind": "turn_started",
+                    "turnId": turn_id,
+                    "threadId": thread_id,
+                }
+            )
+
+        try:
+            completed_turn = await self._wait_for_turn_completion(turn_id)
+        finally:
+            self._turn_handlers.pop(turn_id, None)
+
         extracted = self._extract_agent_text(completed_turn)
-        if extracted:
-            return extracted
+        if not extracted:
+            thread_result = await self.read_thread(thread_id, include_turns=True)
+            stored_thread = thread_result.get("thread", {})
+            for stored_turn in reversed(stored_thread.get("turns", [])):
+                if stored_turn.get("id") == turn_id:
+                    extracted = self._extract_agent_text(stored_turn)
+                    if extracted:
+                        completed_turn = stored_turn
+                    break
 
-        thread_result = await self.read_thread(thread_id, include_turns=True)
-        stored_thread = thread_result.get("thread", {})
-        for stored_turn in reversed(stored_thread.get("turns", [])):
-            if stored_turn.get("id") == turn_id:
-                fallback = self._extract_agent_text(stored_turn)
-                if fallback:
-                    return fallback
-                break
+        if not extracted and completed_turn.get("error"):
+            extracted = completed_turn["error"].get("message", "Turn failed.")
+        if not extracted:
+            extracted = "No response text was returned."
 
-        if completed_turn.get("error"):
-            return completed_turn["error"].get("message", "Turn failed.")
-        return "No response text was returned."
+        return TurnExecutionResult(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            text=extracted,
+            turn=completed_turn,
+        )
+
+    async def steer_turn(
+        self,
+        thread_id: str,
+        turn_id: str,
+        text: str,
+    ) -> None:
+        await self.request(
+            "turn/steer",
+            {
+                "threadId": thread_id,
+                "expectedTurnId": turn_id,
+                "input": [{"type": "text", "text": text}],
+            },
+        )
+
+    async def interrupt_turn(self, thread_id: str, turn_id: str) -> None:
+        await self.request(
+            "turn/interrupt",
+            {
+                "threadId": thread_id,
+                "turnId": turn_id,
+            },
+        )
 
     def is_thread_loaded(self, thread_id: str) -> bool:
         return thread_id in self._loaded_threads
@@ -285,6 +371,7 @@ class CodexAppServerClient:
         sandbox_mode: str | None,
         base_instructions: str | None,
         developer_instructions: str | None,
+        dynamic_tools: list[DynamicToolSpec] | None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "model": model or self._settings.codex_model,
@@ -300,6 +387,8 @@ class CodexAppServerClient:
             params["developerInstructions"] = effective_developer
         if cwd is not None:
             params["cwd"] = cwd
+        if dynamic_tools:
+            params["dynamicTools"] = dynamic_tools
         return params
 
     def _extract_agent_text(self, turn: dict[str, Any]) -> str:
@@ -381,6 +470,25 @@ class CodexAppServerClient:
     async def _handle_server_request(self, message: dict[str, Any]) -> None:
         method = message["method"]
         request_id = message["id"]
+        params = message.get("params", {})
+        turn_id = params.get("turnId")
+
+        if turn_id:
+            handler = self._turn_handlers.get(turn_id)
+            if handler is not None:
+                response = await handler(
+                    {
+                        "kind": "server_request",
+                        "requestId": request_id,
+                        "method": method,
+                        "params": params,
+                        "turnId": turn_id,
+                        "threadId": params.get("threadId"),
+                    }
+                )
+                if response is not None:
+                    await self._send({"id": request_id, "result": response})
+                    return
 
         if method == "item/commandExecution/requestApproval":
             decision = "accept" if self._settings.codex_approval_policy == "never" else "decline"
@@ -427,6 +535,22 @@ class CodexAppServerClient:
                 waiter.set_result(turn)
             else:
                 self._turn_backlog[turn_id] = turn
+
+        turn_id = params.get("turnId")
+        if turn_id:
+            handler = self._turn_handlers.get(turn_id)
+            if handler is not None:
+                asyncio.create_task(
+                    handler(
+                        {
+                            "kind": "notification",
+                            "method": method,
+                            "params": params,
+                            "turnId": turn_id,
+                            "threadId": params.get("threadId"),
+                        }
+                    )
+                )
 
     def _raise_if_reader_stopped(self) -> None:
         task = self._reader_task

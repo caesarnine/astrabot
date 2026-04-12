@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import secrets
 import sqlite3
+from typing import Any
 
 
 def utc_now() -> datetime:
@@ -55,6 +56,7 @@ class AgentRecord:
     last_run_at: str | None = None
     last_run_status: str | None = None
     next_run_at: str | None = None
+    active_turn_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -63,8 +65,11 @@ class JobRecord:
     agent_id: str
     name: str
     prompt: str
-    schedule_type: str
+    trigger_type: str
     interval_minutes: int | None
+    cron_expression: str | None
+    watch_path: str | None
+    watch_debounce_seconds: int | None
     next_run_at: str | None
     last_run_at: str | None
     enabled: bool
@@ -77,14 +82,34 @@ class RunRecord:
     id: str
     agent_id: str
     job_id: str | None
+    thread_id: str | None
+    turn_id: str | None
     trigger: str
     status: str
     started_at: str
     finished_at: str | None
-    final_text: str | None
+    summary_text: str | None
     error_text: str | None
     touched_paths: list[str]
-    output_note_path: str | None
+
+
+@dataclass(slots=True)
+class ActivityRecord:
+    id: str
+    agent_id: str
+    job_id: str | None
+    run_id: str | None
+    thread_id: str | None
+    turn_id: str | None
+    kind: str
+    status: str
+    title: str
+    body: str | None
+    primary_path: str | None
+    paths: list[str]
+    metadata: dict[str, Any]
+    created_at: str
+    updated_at: str
 
 
 class WebStateStore:
@@ -131,8 +156,12 @@ class WebStateStore:
                 agent_id text not null,
                 name text not null,
                 prompt text not null,
-                schedule_type text not null,
+                schedule_type text null,
+                trigger_type text not null default 'interval',
                 interval_minutes integer null,
+                cron_expression text null,
+                watch_path text null,
+                watch_debounce_seconds integer null,
                 next_run_at text null,
                 last_run_at text null,
                 enabled integer not null default 1,
@@ -144,17 +173,74 @@ class WebStateStore:
                 id text not null primary key,
                 agent_id text not null,
                 job_id text null,
+                thread_id text null,
+                turn_id text null,
                 trigger text not null,
                 status text not null,
                 started_at text not null,
                 finished_at text null,
-                final_text text null,
+                summary_text text null,
                 error_text text null,
-                touched_paths_json text not null default '[]',
-                output_note_path text null
+                touched_paths_json text not null default '[]'
             );
+
+            create table if not exists activity_items (
+                id text not null primary key,
+                agent_id text not null,
+                job_id text null,
+                run_id text null,
+                thread_id text null,
+                turn_id text null,
+                kind text not null,
+                status text not null,
+                title text not null,
+                body text null,
+                primary_path text null,
+                paths_json text not null default '[]',
+                metadata_json text not null default '{}',
+                created_at text not null,
+                updated_at text not null
+            );
+
+            create index if not exists idx_activity_items_created_at on activity_items(created_at desc);
+            create index if not exists idx_activity_items_kind_status on activity_items(kind, status);
+            create index if not exists idx_activity_items_run_id on activity_items(run_id);
+            create index if not exists idx_agent_runs_agent_started on agent_runs(agent_id, started_at desc);
+            create index if not exists idx_agent_jobs_agent on agent_jobs(agent_id);
             """
         )
+        self._ensure_column("agent_jobs", "trigger_type", "text not null default 'interval'")
+        self._ensure_column("agent_jobs", "schedule_type", "text null")
+        self._ensure_column("agent_jobs", "cron_expression", "text null")
+        self._ensure_column("agent_jobs", "watch_path", "text null")
+        self._ensure_column("agent_jobs", "watch_debounce_seconds", "integer null")
+        self._ensure_column("agent_runs", "thread_id", "text null")
+        self._ensure_column("agent_runs", "turn_id", "text null")
+        self._ensure_column("agent_runs", "summary_text", "text null")
+        legacy_rows = self._conn.execute("pragma table_info(agent_jobs)").fetchall()
+        legacy_columns = {row["name"] for row in legacy_rows}
+        if "schedule_type" in legacy_columns:
+            self._conn.execute(
+                """
+                update agent_jobs
+                set trigger_type = case
+                    when schedule_type = 'interval' then 'interval'
+                    when schedule_type = 'manual' then 'manual'
+                    else coalesce(trigger_type, 'manual')
+                end
+                where trigger_type is null or trigger_type = ''
+                """
+            )
+        run_rows = self._conn.execute("pragma table_info(agent_runs)").fetchall()
+        run_columns = {row["name"] for row in run_rows}
+        if "final_text" in run_columns:
+            self._conn.execute(
+                """
+                update agent_runs
+                set summary_text = coalesce(summary_text, final_text)
+                where summary_text is null and final_text is not null
+                """
+            )
         self._conn.commit()
 
     def upsert_document(
@@ -287,9 +373,16 @@ class WebStateStore:
                     limit 1
                 ) as last_run_status,
                 (
+                    select r.turn_id
+                    from agent_runs r
+                    where r.agent_id = a.id and r.status = 'running'
+                    order by r.started_at desc
+                    limit 1
+                ) as active_turn_id,
+                (
                     select min(j.next_run_at)
                     from agent_jobs j
-                    where j.agent_id = a.id and j.enabled = 1 and j.schedule_type = 'interval'
+                    where j.agent_id = a.id and j.enabled = 1 and j.trigger_type in ('interval', 'cron')
                 ) as next_run_at
             from agents a
             order by lower(a.name)
@@ -317,9 +410,16 @@ class WebStateStore:
                     limit 1
                 ) as last_run_status,
                 (
+                    select r.turn_id
+                    from agent_runs r
+                    where r.agent_id = a.id and r.status = 'running'
+                    order by r.started_at desc
+                    limit 1
+                ) as active_turn_id,
+                (
                     select min(j.next_run_at)
                     from agent_jobs j
-                    where j.agent_id = a.id and j.enabled = 1 and j.schedule_type = 'interval'
+                    where j.agent_id = a.id and j.enabled = 1 and j.trigger_type in ('interval', 'cron')
                 ) as next_run_at
             from agents a
             where a.id = ?
@@ -384,16 +484,25 @@ class WebStateStore:
         )
         self._conn.commit()
 
-    def list_jobs(self, agent_id: str) -> list[JobRecord]:
-        rows = self._conn.execute(
-            """
-            select *
-            from agent_jobs
-            where agent_id = ?
-            order by lower(name)
-            """,
-            (agent_id,),
-        ).fetchall()
+    def list_jobs(self, agent_id: str | None = None) -> list[JobRecord]:
+        if agent_id is None:
+            rows = self._conn.execute(
+                """
+                select *
+                from agent_jobs
+                order by lower(name)
+                """
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """
+                select *
+                from agent_jobs
+                where agent_id = ?
+                order by lower(name)
+                """,
+                (agent_id,),
+            ).fetchall()
         return [self._row_to_job(row) for row in rows]
 
     def get_job(self, job_id: str) -> JobRecord:
@@ -408,36 +517,36 @@ class WebStateStore:
         agent_id: str,
         name: str,
         prompt: str,
-        schedule_type: str,
+        trigger_type: str,
         interval_minutes: int | None,
+        cron_expression: str | None,
+        watch_path: str | None,
+        watch_debounce_seconds: int | None,
+        next_run_at: str | None,
         enabled: bool,
     ) -> JobRecord:
-        now = utc_now()
-        next_run_at = None
-        if schedule_type == "interval" and enabled and interval_minutes:
-            next_run_at = (now.timestamp() + interval_minutes * 60)
-            next_run_text = datetime.fromtimestamp(next_run_at, timezone.utc).isoformat()
-        else:
-            next_run_text = None
-
+        now_text = utc_now_text()
         job_id = _new_id("job")
-        now_text = now.isoformat()
         self._conn.execute(
             """
             insert into agent_jobs (
-                id, agent_id, name, prompt, schedule_type, interval_minutes, next_run_at,
-                last_run_at, enabled, created_at, updated_at
+                id, agent_id, name, prompt, schedule_type, trigger_type, interval_minutes, cron_expression,
+                watch_path, watch_debounce_seconds, next_run_at, last_run_at, enabled, created_at, updated_at
             )
-            values (?, ?, ?, ?, ?, ?, ?, null, ?, ?, ?)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, null, ?, ?, ?)
             """,
             (
                 job_id,
                 agent_id,
                 name,
                 prompt,
-                schedule_type,
+                trigger_type,
+                trigger_type,
                 interval_minutes,
-                next_run_text,
+                cron_expression,
+                watch_path,
+                watch_debounce_seconds,
+                next_run_at,
                 1 if enabled else 0,
                 now_text,
                 now_text,
@@ -452,19 +561,14 @@ class WebStateStore:
         *,
         name: str,
         prompt: str,
-        schedule_type: str,
+        trigger_type: str,
         interval_minutes: int | None,
+        cron_expression: str | None,
+        watch_path: str | None,
+        watch_debounce_seconds: int | None,
+        next_run_at: str | None,
         enabled: bool,
     ) -> JobRecord:
-        existing = self.get_job(job_id)
-        next_run_at = existing.next_run_at
-        if schedule_type != "interval" or not enabled:
-            next_run_at = None
-        elif interval_minutes:
-            now_text = utc_now_text()
-            if existing.schedule_type != "interval" or existing.interval_minutes != interval_minutes or not existing.enabled:
-                next_run_at = now_text
-
         self._conn.execute(
             """
             update agent_jobs
@@ -472,7 +576,11 @@ class WebStateStore:
                 name = ?,
                 prompt = ?,
                 schedule_type = ?,
+                trigger_type = ?,
                 interval_minutes = ?,
+                cron_expression = ?,
+                watch_path = ?,
+                watch_debounce_seconds = ?,
                 next_run_at = ?,
                 enabled = ?,
                 updated_at = ?
@@ -481,8 +589,12 @@ class WebStateStore:
             (
                 name,
                 prompt,
-                schedule_type,
+                trigger_type,
+                trigger_type,
                 interval_minutes,
+                cron_expression,
+                watch_path,
+                watch_debounce_seconds,
                 next_run_at,
                 1 if enabled else 0,
                 utc_now_text(),
@@ -513,7 +625,7 @@ class WebStateStore:
             from agent_jobs
             where
                 enabled = 1
-                and schedule_type = 'interval'
+                and trigger_type in ('interval', 'cron')
                 and next_run_at is not null
                 and next_run_at <= ?
             order by next_run_at
@@ -529,36 +641,49 @@ class WebStateStore:
         agent_id: str,
         job_id: str | None,
         trigger: str,
-        output_note_path: str | None,
+        thread_id: str | None = None,
     ) -> RunRecord:
         run_id = _new_id("run")
         started_at = utc_now_text()
         self._conn.execute(
             """
             insert into agent_runs (
-                id, agent_id, job_id, trigger, status, started_at, finished_at,
-                final_text, error_text, touched_paths_json, output_note_path
+                id, agent_id, job_id, thread_id, turn_id, trigger, status, started_at, finished_at,
+                summary_text, error_text, touched_paths_json
             )
-            values (?, ?, ?, ?, 'queued', ?, null, null, null, '[]', ?)
+            values (?, ?, ?, ?, null, ?, 'queued', ?, null, null, null, '[]')
             """,
-            (run_id, agent_id, job_id, trigger, started_at, output_note_path),
+            (run_id, agent_id, job_id, thread_id, trigger, started_at),
         )
         self._conn.commit()
         return self.get_run(run_id)
 
-    def mark_run_running(self, run_id: str) -> None:
+    def set_run_turn(self, run_id: str, *, thread_id: str, turn_id: str) -> RunRecord:
+        self._conn.execute(
+            """
+            update agent_runs
+            set thread_id = ?, turn_id = ?
+            where id = ?
+            """,
+            (thread_id, turn_id, run_id),
+        )
+        self._conn.commit()
+        return self.get_run(run_id)
+
+    def mark_run_running(self, run_id: str) -> RunRecord:
         self._conn.execute(
             "update agent_runs set status = 'running' where id = ?",
             (run_id,),
         )
         self._conn.commit()
+        return self.get_run(run_id)
 
     def finish_run(
         self,
         run_id: str,
         *,
         status: str,
-        final_text: str | None,
+        summary_text: str | None,
         error_text: str | None,
         touched_paths: list[str],
     ) -> RunRecord:
@@ -568,17 +693,17 @@ class WebStateStore:
             set
                 status = ?,
                 finished_at = ?,
-                final_text = ?,
+                summary_text = ?,
                 error_text = ?,
                 touched_paths_json = ?
             where id = ?
             """,
-            (status, utc_now_text(), final_text, error_text, json.dumps(touched_paths), run_id),
+            (status, utc_now_text(), summary_text, error_text, json.dumps(touched_paths), run_id),
         )
         self._conn.commit()
         return self.get_run(run_id)
 
-    def list_runs(self, agent_id: str | None = None, limit: int = 25) -> list[RunRecord]:
+    def list_runs(self, agent_id: str | None = None, limit: int = 50) -> list[RunRecord]:
         if agent_id is None:
             rows = self._conn.execute(
                 """
@@ -608,6 +733,166 @@ class WebStateStore:
             raise KeyError(run_id)
         return self._row_to_run(row)
 
+    def create_activity(
+        self,
+        *,
+        agent_id: str,
+        kind: str,
+        status: str,
+        title: str,
+        body: str | None,
+        paths: list[str] | None = None,
+        primary_path: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        job_id: str | None = None,
+        run_id: str | None = None,
+        thread_id: str | None = None,
+        turn_id: str | None = None,
+    ) -> ActivityRecord:
+        activity_id = _new_id("activity")
+        now_text = utc_now_text()
+        cleaned_paths = paths or []
+        self._conn.execute(
+            """
+            insert into activity_items (
+                id, agent_id, job_id, run_id, thread_id, turn_id, kind, status, title, body,
+                primary_path, paths_json, metadata_json, created_at, updated_at
+            )
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                activity_id,
+                agent_id,
+                job_id,
+                run_id,
+                thread_id,
+                turn_id,
+                kind,
+                status,
+                title,
+                body,
+                primary_path,
+                json.dumps(cleaned_paths),
+                json.dumps(metadata or {}),
+                now_text,
+                now_text,
+            ),
+        )
+        self._conn.commit()
+        return self.get_activity(activity_id)
+
+    def update_activity(
+        self,
+        activity_id: str,
+        *,
+        status: str | None = None,
+        title: str | None = None,
+        body: str | None = None,
+        paths: list[str] | None = None,
+        primary_path: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ActivityRecord:
+        current = self.get_activity(activity_id)
+        next_status = status or current.status
+        next_title = title or current.title
+        next_body = current.body if body is None else body
+        next_paths = current.paths if paths is None else paths
+        next_primary = current.primary_path if primary_path is None else primary_path
+        next_metadata = current.metadata if metadata is None else metadata
+        self._conn.execute(
+            """
+            update activity_items
+            set
+                status = ?,
+                title = ?,
+                body = ?,
+                primary_path = ?,
+                paths_json = ?,
+                metadata_json = ?,
+                updated_at = ?
+            where id = ?
+            """,
+            (
+                next_status,
+                next_title,
+                next_body,
+                next_primary,
+                json.dumps(next_paths),
+                json.dumps(next_metadata),
+                utc_now_text(),
+                activity_id,
+            ),
+        )
+        self._conn.commit()
+        return self.get_activity(activity_id)
+
+    def list_activity(
+        self,
+        *,
+        limit: int = 100,
+        since_text: str | None = None,
+        include_attention: bool = True,
+    ) -> list[ActivityRecord]:
+        query = [
+            "select * from activity_items",
+            "where 1 = 1",
+        ]
+        params: list[Any] = []
+        if since_text is not None:
+            query.append("and created_at >= ?")
+            params.append(since_text)
+        if not include_attention:
+            query.append("and kind != 'attention'")
+        query.append("order by created_at desc limit ?")
+        params.append(limit)
+        rows = self._conn.execute("\n".join(query), params).fetchall()
+        return [self._row_to_activity(row) for row in rows]
+
+    def list_attention(self, *, status: str = "pending") -> list[ActivityRecord]:
+        rows = self._conn.execute(
+            """
+            select *
+            from activity_items
+            where kind = 'attention' and status = ?
+            order by created_at desc
+            """,
+            (status,),
+        ).fetchall()
+        return [self._row_to_activity(row) for row in rows]
+
+    def get_activity(self, activity_id: str) -> ActivityRecord:
+        row = self._conn.execute("select * from activity_items where id = ?", (activity_id,)).fetchone()
+        if row is None:
+            raise KeyError(activity_id)
+        return self._row_to_activity(row)
+
+    def recent_file_activity(self, *, since_text: str) -> dict[str, dict[str, Any]]:
+        rows = self._conn.execute(
+            """
+            select *
+            from activity_items
+            where kind in ('artifact', 'attention') and created_at >= ?
+            order by created_at desc
+            """,
+            (since_text,),
+        ).fetchall()
+        recent: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            activity = self._row_to_activity(row)
+            paths = activity.paths or ([activity.primary_path] if activity.primary_path else [])
+            for path in paths:
+                if not path or path in recent:
+                    continue
+                recent[path] = {
+                    "activityId": activity.id,
+                    "agentId": activity.agent_id,
+                    "kind": activity.kind,
+                    "status": activity.status,
+                    "title": activity.title,
+                    "createdAt": activity.created_at,
+                }
+        return recent
+
     def close(self) -> None:
         self._conn.close()
 
@@ -629,16 +914,23 @@ class WebStateStore:
             last_run_at=row["last_run_at"] if "last_run_at" in row.keys() else None,
             last_run_status=row["last_run_status"] if "last_run_status" in row.keys() else None,
             next_run_at=row["next_run_at"] if "next_run_at" in row.keys() else None,
+            active_turn_id=row["active_turn_id"] if "active_turn_id" in row.keys() else None,
         )
 
     def _row_to_job(self, row: sqlite3.Row) -> JobRecord:
+        trigger_type = row["trigger_type"] if "trigger_type" in row.keys() else None
+        if not trigger_type and "schedule_type" in row.keys():
+            trigger_type = row["schedule_type"]
         return JobRecord(
             id=row["id"],
             agent_id=row["agent_id"],
             name=row["name"],
             prompt=row["prompt"],
-            schedule_type=row["schedule_type"],
+            trigger_type=trigger_type or "manual",
             interval_minutes=row["interval_minutes"],
+            cron_expression=row["cron_expression"] if "cron_expression" in row.keys() else None,
+            watch_path=row["watch_path"] if "watch_path" in row.keys() else None,
+            watch_debounce_seconds=row["watch_debounce_seconds"] if "watch_debounce_seconds" in row.keys() else None,
             next_run_at=row["next_run_at"],
             last_run_at=row["last_run_at"],
             enabled=bool(row["enabled"]),
@@ -647,16 +939,46 @@ class WebStateStore:
         )
 
     def _row_to_run(self, row: sqlite3.Row) -> RunRecord:
+        summary_text = row["summary_text"] if "summary_text" in row.keys() else None
+        if summary_text is None and "final_text" in row.keys():
+            summary_text = row["final_text"]
         return RunRecord(
             id=row["id"],
             agent_id=row["agent_id"],
             job_id=row["job_id"],
+            thread_id=row["thread_id"] if "thread_id" in row.keys() else None,
+            turn_id=row["turn_id"] if "turn_id" in row.keys() else None,
             trigger=row["trigger"],
             status=row["status"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],
-            final_text=row["final_text"],
+            summary_text=summary_text,
             error_text=row["error_text"],
             touched_paths=json.loads(row["touched_paths_json"] or "[]"),
-            output_note_path=row["output_note_path"],
         )
+
+    def _row_to_activity(self, row: sqlite3.Row) -> ActivityRecord:
+        return ActivityRecord(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            job_id=row["job_id"],
+            run_id=row["run_id"],
+            thread_id=row["thread_id"],
+            turn_id=row["turn_id"],
+            kind=row["kind"],
+            status=row["status"],
+            title=row["title"],
+            body=row["body"],
+            primary_path=row["primary_path"],
+            paths=json.loads(row["paths_json"] or "[]"),
+            metadata=json.loads(row["metadata_json"] or "{}"),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def _ensure_column(self, table_name: str, column_name: str, column_sql: str) -> None:
+        rows = self._conn.execute(f"pragma table_info({table_name})").fetchall()
+        existing = {row["name"] for row in rows}
+        if column_name in existing:
+            return
+        self._conn.execute(f"alter table {table_name} add column {column_name} {column_sql}")

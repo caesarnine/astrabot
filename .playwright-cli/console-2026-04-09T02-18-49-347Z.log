@@ -1,0 +1,12 @@
+[  690940ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  692492ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  694000ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  695508ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  697012ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  698522ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  700035ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  701545ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  703066ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  704583ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  706093ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36
+[  707628ms] [ERROR] WebSocket connection to 'ws://127.0.0.1:8765/api/events' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8765/static/dist/assets/index-ylDcedlw.js:36

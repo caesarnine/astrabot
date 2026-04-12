@@ -12,22 +12,33 @@ import { api } from './api'
 import { FileTree } from './components/FileTree'
 import { MarkdownPreview } from './components/MarkdownPreview'
 import type {
+  ActivityBundle,
+  ActivityRecord,
   AgentDetailResponse,
   AgentRecord,
+  AskResponse,
   BootstrapResponse,
   Defaults,
   DocumentRecord,
   EventEnvelope,
+  FileActivityRecord,
   JobRecord,
   RunRecord,
   SearchResult,
   TreeNode,
+  UpcomingItem,
   ViewMode,
 } from './types'
 
 const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
 const APPROVALS = ['untrusted', 'on-failure', 'on-request', 'never']
 const SANDBOXES = ['read-only', 'workspace-write', 'danger-full-access']
+const TRIGGERS = [
+  { value: 'interval', label: 'Interval' },
+  { value: 'cron', label: 'Cron' },
+  { value: 'file_watch', label: 'File Watch' },
+  { value: 'manual', label: 'Manual' },
+] as const
 const COMPACT_BREAKPOINT = 960
 const MOBILE_BREAKPOINT = 680
 
@@ -48,8 +59,11 @@ interface JobFormState {
   id: string
   name: string
   prompt: string
-  scheduleType: 'manual' | 'interval'
+  triggerType: 'manual' | 'interval' | 'cron' | 'file_watch'
   intervalMinutes: number
+  cronExpression: string
+  watchPath: string
+  watchDebounceSeconds: number
   enabled: boolean
 }
 
@@ -73,8 +87,11 @@ function blankJobForm(): JobFormState {
     id: '',
     name: '',
     prompt: '',
-    scheduleType: 'interval',
+    triggerType: 'interval',
     intervalMinutes: 60,
+    cronExpression: '0 7 * * 1-5',
+    watchPath: '',
+    watchDebounceSeconds: 5,
     enabled: true,
   }
 }
@@ -99,8 +116,11 @@ function jobToForm(job: JobRecord): JobFormState {
     id: job.id,
     name: job.name,
     prompt: job.prompt,
-    scheduleType: job.scheduleType,
+    triggerType: job.triggerType,
     intervalMinutes: job.intervalMinutes ?? 60,
+    cronExpression: job.cronExpression ?? '0 7 * * 1-5',
+    watchPath: job.watchPath ?? '',
+    watchDebounceSeconds: job.watchDebounceSeconds ?? 5,
     enabled: job.enabled,
   }
 }
@@ -144,12 +164,10 @@ function formatDate(value: string | null) {
   if (!value) {
     return '\u2014'
   }
-
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
     return value
   }
-
   const diff = Date.now() - date.getTime()
   if (diff >= 0 && diff < 60_000) {
     return 'just now'
@@ -160,7 +178,6 @@ function formatDate(value: string | null) {
   if (diff >= 0 && diff < 86_400_000) {
     return `${Math.floor(diff / 3_600_000)}h ago`
   }
-
   return date.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -170,24 +187,49 @@ function formatDate(value: string | null) {
 }
 
 function statusClass(status: string) {
-  if (status === 'succeeded' || status === 'saved') {
+  if (status === 'succeeded' || status === 'replied') {
     return 'success'
   }
   if (status === 'failed') {
     return 'danger'
   }
-  if (status === 'queued' || status === 'running') {
+  if (status === 'queued' || status === 'running' || status === 'pending') {
     return 'warning'
   }
   return 'muted'
 }
 
-function shortRunTitle(run: RunRecord) {
-  if (run.outputNotePath) {
-    const parts = run.outputNotePath.split('/')
-    return parts[parts.length - 1] || run.outputNotePath
+function activityIcon(activity: ActivityRecord | UpcomingItem) {
+  if ('triggerType' in activity) {
+    return 'ring'
   }
-  return run.id
+  if (activity.kind === 'attention') {
+    return 'attention'
+  }
+  if (activity.kind === 'artifact') {
+    return 'artifact'
+  }
+  return 'notification'
+}
+
+function shortRunTitle(run: RunRecord) {
+  if (run.touchedPaths.length === 1) {
+    return run.touchedPaths[0]
+  }
+  return run.summaryText || run.id
+}
+
+function describeJobSchedule(job: JobRecord) {
+  if (job.triggerType === 'file_watch') {
+    return job.watchPath ? `Watching ${job.watchPath}` : 'Watching scope'
+  }
+  if (job.triggerType === 'cron') {
+    return job.cronPreview || job.cronExpression || 'Cron schedule'
+  }
+  if (job.triggerType === 'interval') {
+    return job.intervalMinutes ? `${job.intervalMinutes}m` : 'Interval'
+  }
+  return 'Manual'
 }
 
 function nextScheduledRun(agents: AgentRecord[]) {
@@ -197,7 +239,6 @@ function nextScheduledRun(agents: AgentRecord[]) {
     .map((value) => new Date(value as string))
     .filter((date) => !Number.isNaN(date.getTime()))
     .sort((left, right) => left.getTime() - right.getTime())
-
   return dates[0]?.toISOString() ?? null
 }
 
@@ -218,8 +259,69 @@ function currentViewportWidth() {
   if (typeof window === 'undefined') {
     return COMPACT_BREAKPOINT + 1
   }
-
   return window.innerWidth || document.documentElement.clientWidth || COMPACT_BREAKPOINT + 1
+}
+
+function buildWatchedFolders(agents: AgentRecord[]) {
+  const map: Record<string, string[]> = {}
+  for (const agent of agents) {
+    const scope = agent.scopePath.trim()
+    if (!scope) {
+      continue
+    }
+    const segments = scope.split('/')
+    const prefixes: string[] = []
+    for (let index = 0; index < segments.length; index += 1) {
+      prefixes.push(segments.slice(0, index + 1).join('/'))
+    }
+    for (const prefix of prefixes) {
+      map[prefix] ??= []
+      map[prefix].push(agent.name)
+    }
+  }
+  return map
+}
+
+function matchAgentByName(agents: AgentRecord[], value: string) {
+  const normalized = value.trim().toLowerCase()
+  return agents.find((agent) => agent.name.trim().toLowerCase() === normalized) ?? null
+}
+
+function routeAgentByPath(agents: AgentRecord[], path: string) {
+  const normalized = path.trim().replace(/^\/+/, '')
+  const matches = agents
+    .filter((agent) => agent.enabled)
+    .map((agent) => {
+      const scope = agent.scopePath.trim().replace(/^\/+/, '')
+      if (!scope) {
+        return { score: 0, agent }
+      }
+      if (normalized === scope || normalized.startsWith(`${scope}/`)) {
+        return { score: scope.length, agent }
+      }
+      return null
+    })
+    .filter(Boolean) as Array<{ score: number; agent: AgentRecord }>
+  if (!matches.length) {
+    return null
+  }
+  matches.sort((left, right) => right.score - left.score)
+  return matches[0].agent
+}
+
+function commandTarget(agents: AgentRecord[], input: string, currentPath: string) {
+  if (input.startsWith('@')) {
+    const match = input.slice(1).match(/^([^\s]+)\s*/)
+    if (match?.[1]) {
+      const agent = matchAgentByName(agents, match[1])
+      if (agent) {
+        const cleaned = input.replace(/^@[^\s]+\s*/, '').trim()
+        return { agent, cleanedPrompt: cleaned || input.trim() }
+      }
+    }
+  }
+  const routed = routeAgentByPath(agents, currentPath)
+  return { agent: routed, cleanedPrompt: input.trim() }
 }
 
 export default function App() {
@@ -228,14 +330,11 @@ export default function App() {
   const [defaults, setDefaults] = useState<Defaults | null>(null)
   const [tree, setTree] = useState<TreeNode | null>(null)
   const [agents, setAgents] = useState<AgentRecord[]>([])
-  const [jobs, setJobs] = useState<JobRecord[]>([])
-  const [runs, setRuns] = useState<RunRecord[]>([])
+  const [activity, setActivity] = useState<ActivityBundle>({ attention: [], today: [], upcoming: [] })
+  const [recentFileActivity, setRecentFileActivity] = useState<Record<string, FileActivityRecord>>({})
   const [account, setAccount] = useState<BootstrapResponse['account'] | null>(null)
   const [currentDocument, setCurrentDocument] = useState<DocumentRecord | null>(null)
   const [selectedDocumentPath, setSelectedDocumentPath] = useState('')
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [openTabs, setOpenTabs] = useState<Array<{ path: string; title: string }>>([])
   const [documentViewMode, setDocumentViewMode] = useState<ViewMode>(() =>
     currentViewportWidth() <= COMPACT_BREAKPOINT ? 'preview' : 'split',
@@ -253,24 +352,44 @@ export default function App() {
   const [newNoteName, setNewNoteName] = useState('')
   const [newNoteParent, setNewNoteParent] = useState('')
   const [editorValue, setEditorValue] = useState('')
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [jobs, setJobs] = useState<JobRecord[]>([])
+  const [runs, setRuns] = useState<RunRecord[]>([])
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [agentForm, setAgentForm] = useState<AgentFormState>(blankAgentForm(null))
   const [jobForm, setJobForm] = useState<JobFormState>(blankJobForm())
-  const [quickRunPrompt, setQuickRunPrompt] = useState('')
-  const [agentConfigOpen, setAgentConfigOpen] = useState(true)
-  const [jobConfigOpen, setJobConfigOpen] = useState(false)
+  const [agentModalOpen, setAgentModalOpen] = useState(false)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [commandInput, setCommandInput] = useState('')
+  const [sidebarAskInput, setSidebarAskInput] = useState('')
   const [toastMessage, setToastMessage] = useState('')
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
+  const [dismissedActivityIds, setDismissedActivityIds] = useState<string[]>([])
 
   const searchWrapRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
   const newNoteNameRef = useRef<HTMLInputElement | null>(null)
   const previousViewportWidthRef = useRef(viewportWidth)
+  const commandInputRef = useRef<HTMLInputElement | null>(null)
 
   const deferredSearchQuery = useDeferredValue(searchQuery.trim())
-  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId) ?? null
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? null
   const currentWordCount = countWords(editorValue)
   const isCompactLayout = viewportWidth <= COMPACT_BREAKPOINT
   const isMobileLayout = viewportWidth <= MOBILE_BREAKPOINT
+  const watchedFolders = buildWatchedFolders(agents)
+  const visibleAttention = activity.attention.filter((item) => !dismissedActivityIds.includes(item.id))
+  const currentFileActivity = currentDocument ? recentFileActivity[currentDocument.path] : undefined
+  const watchingAgents = currentDocument
+    ? agents.filter((agent) => {
+        const scope = agent.scopePath.trim()
+        if (!scope) {
+          return false
+        }
+        return currentDocument.path === scope || currentDocument.path.startsWith(`${scope}/`)
+      })
+    : []
+  const commandRoute = commandTarget(agents, commandInput, currentDocument?.path ?? '')
 
   useEffect(() => {
     document.title = appName
@@ -280,7 +399,6 @@ export default function App() {
     function handleResize() {
       setViewportWidth(currentViewportWidth())
     }
-
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
@@ -313,11 +431,7 @@ export default function App() {
     if (!toastMessage) {
       return undefined
     }
-
-    const timeout = window.setTimeout(() => {
-      setToastMessage('')
-    }, 3_200)
-
+    const timeout = window.setTimeout(() => setToastMessage(''), 3200)
     return () => window.clearTimeout(timeout)
   }, [toastMessage])
 
@@ -325,12 +439,10 @@ export default function App() {
     if (!dirty) {
       return undefined
     }
-
     function handleBeforeUnload(event: BeforeUnloadEvent) {
       event.preventDefault()
       event.returnValue = ''
     }
-
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [dirty])
@@ -340,12 +452,9 @@ export default function App() {
       setSearchResults([])
       return undefined
     }
-
     const timeout = window.setTimeout(async () => {
       try {
-        const result = await api<{ results: SearchResult[] }>(
-          `/api/search?q=${encodeURIComponent(deferredSearchQuery)}`,
-        )
+        const result = await api<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(deferredSearchQuery)}`)
         startTransition(() => {
           setSearchResults(result.results)
           setSearchOpen(true)
@@ -354,9 +463,15 @@ export default function App() {
         setToastMessage(error instanceof Error ? error.message : 'Search failed.')
       }
     }, 150)
-
     return () => window.clearTimeout(timeout)
   }, [deferredSearchQuery])
+
+  useEffect(() => {
+    if (!commandPaletteOpen) {
+      return
+    }
+    window.setTimeout(() => commandInputRef.current?.focus(), 0)
+  }, [commandPaletteOpen])
 
   const handleGlobalClick = useEffectEvent((event: MouseEvent) => {
     if (!searchWrapRef.current?.contains(event.target as Node)) {
@@ -368,34 +483,38 @@ export default function App() {
     function onClick(event: MouseEvent) {
       handleGlobalClick(event)
     }
-
     document.addEventListener('click', onClick)
     return () => document.removeEventListener('click', onClick)
   }, [])
 
   const handleGlobalKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    const withCommand = event.metaKey || event.ctrlKey
+    if (withCommand && event.shiftKey && event.key.toLowerCase() === 'k') {
+      event.preventDefault()
+      setCommandPaletteOpen(true)
+      return
+    }
+    if (withCommand && event.key.toLowerCase() === 'k') {
       event.preventDefault()
       searchInputRef.current?.focus()
       searchInputRef.current?.select()
       return
     }
-
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+    if (withCommand && event.key.toLowerCase() === 's') {
       event.preventDefault()
       void saveCurrentDocument({ autosave: false })
       return
     }
-
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
+    if (withCommand && event.key.toLowerCase() === 'b') {
       event.preventDefault()
       toggleLeftSidebar()
       return
     }
-
     if (event.key === 'Escape') {
       setNewNoteOpen(false)
       setSearchOpen(false)
+      setCommandPaletteOpen(false)
+      setAgentModalOpen(false)
     }
   })
 
@@ -403,14 +522,13 @@ export default function App() {
     function onKeyDown(event: KeyboardEvent) {
       handleGlobalKeyDown(event)
     }
-
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
   const handleSocketMessage = useEffectEvent(async (message: EventEnvelope) => {
     if (message.type === 'vault.changed') {
-      await refreshTree()
+      await Promise.all([refreshTree(), refreshRecentActivity()])
       if (selectedDocumentPath && !dirty) {
         await loadDocument(selectedDocumentPath, { bypassConfirm: true })
       }
@@ -419,15 +537,25 @@ export default function App() {
 
     if (message.type === 'agents.changed' || message.type === 'jobs.changed') {
       await refreshAgents()
-      if (selectedAgentId) {
+      await refreshActivityBundle()
+      if (agentModalOpen && selectedAgentId) {
         await loadAgentDetails(selectedAgentId)
       }
       return
     }
 
-    if (message.type === 'run.queued' || message.type === 'run.started' || message.type === 'run.completed') {
-      await refreshAgents()
-      await refreshRunsForSelection()
+    if (
+      message.type === 'run.queued' ||
+      message.type === 'run.started' ||
+      message.type === 'run.completed' ||
+      message.type === 'activity.created' ||
+      message.type === 'attention.updated'
+    ) {
+      await Promise.all([refreshAgents(), refreshActivityBundle(), refreshRecentActivity()])
+      if (agentModalOpen && selectedAgentId) {
+        await loadAgentDetails(selectedAgentId)
+      }
+      return
     }
   })
 
@@ -440,13 +568,15 @@ export default function App() {
         setDefaults(data.defaults)
         setTree(data.tree)
         setAgents(data.agents)
-        setRuns(data.runs)
+        setActivity(data.activity)
+        setRecentFileActivity(data.recentFileActivity)
         setAccount(data.account)
         setAgentForm(blankAgentForm(data.defaults))
         setJobForm(blankJobForm())
       })
 
-      if (data.agents.length > 0) {
+      setSelectedAgentId(data.agents[0]?.id ?? null)
+      if (data.agents[0]) {
         await loadAgentDetails(data.agents[0].id)
       }
 
@@ -471,11 +601,7 @@ export default function App() {
     if (!currentDocument?.editable || !dirty || isSaving) {
       return undefined
     }
-
-    const timeout = window.setTimeout(() => {
-      runAutosave()
-    }, 900)
-
+    const timeout = window.setTimeout(() => runAutosave(), 900)
     return () => window.clearTimeout(timeout)
   }, [currentDocument?.editable, currentDocument?.path, dirty, editorValue, isSaving])
 
@@ -493,13 +619,12 @@ export default function App() {
       })
       socket.addEventListener('close', () => {
         if (!cancelled) {
-          reconnectTimer = window.setTimeout(connect, 1_500)
+          reconnectTimer = window.setTimeout(connect, 1500)
         }
       })
     }
 
     connect()
-
     return () => {
       cancelled = true
       window.clearTimeout(reconnectTimer)
@@ -515,7 +640,6 @@ export default function App() {
     if (!isCompactLayout) {
       return
     }
-
     setRightSidebarOpen(false)
     if (isMobileLayout) {
       setLeftSidebarOpen(false)
@@ -601,26 +725,20 @@ export default function App() {
     })
   }
 
-  async function refreshRunsForSelection() {
-    if (selectedAgentId) {
-      await loadAgentDetails(selectedAgentId)
-      return
-    }
+  async function refreshActivityBundle() {
+    const next = await api<ActivityBundle>('/api/activity')
+    startTransition(() => setActivity(next))
+  }
 
-    const result = await api<{ runs: RunRecord[] }>('/api/runs')
-    startTransition(() => {
-      setRuns(result.runs)
-      setSelectedRunId((current) =>
-        result.runs.some((run) => run.id === current) ? current : (result.runs[0]?.id ?? null),
-      )
-    })
+  async function refreshRecentActivity() {
+    const next = await api<{ items: Record<string, FileActivityRecord> }>('/api/activity/recent')
+    startTransition(() => setRecentFileActivity(next.items))
   }
 
   async function loadDocument(path: string, options: { bypassConfirm: boolean } = { bypassConfirm: false }) {
     if (!options.bypassConfirm && !confirmDiscardChanges()) {
       return
     }
-
     try {
       const document = await api<DocumentRecord>(`/api/documents/${encodePath(path)}`)
       startTransition(() => {
@@ -648,7 +766,6 @@ export default function App() {
         setSelectedRunId((current) =>
           result.runs.some((run) => run.id === current) ? current : (result.runs[0]?.id ?? null),
         )
-        setAgentConfigOpen(false)
       })
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not load agent.')
@@ -659,16 +776,13 @@ export default function App() {
     if (!currentDocument?.editable || isSaving) {
       return
     }
-
     setIsSaving(true)
     setSaveStateLabel('Saving...')
-
     try {
       const result = await api<DocumentRecord>(`/api/documents/${encodePath(currentDocument.path)}`, {
         method: 'PUT',
         body: JSON.stringify({ content: editorValue }),
       })
-
       startTransition(() => {
         setCurrentDocument(result)
         setEditorValue(result.content ?? '')
@@ -676,7 +790,7 @@ export default function App() {
         setSaveStateLabel('Saved')
         setOpenTabs((current) => rememberTab(current, result))
       })
-      await refreshTree()
+      await Promise.all([refreshTree(), refreshRecentActivity()])
       if (!autosave) {
         showToast('Saved.')
       }
@@ -717,7 +831,6 @@ export default function App() {
       showToast('Name the note first.')
       return
     }
-
     try {
       const result = await api<DocumentRecord>('/api/documents', {
         method: 'POST',
@@ -740,7 +853,6 @@ export default function App() {
 
   async function saveAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
     const payload = {
       name: agentForm.name,
       scope_path: agentForm.scopePath,
@@ -752,7 +864,6 @@ export default function App() {
       sandbox_mode: agentForm.sandboxMode,
       enabled: agentForm.enabled,
     }
-
     try {
       const result = agentForm.id
         ? await api<{ agent: AgentRecord }>(`/api/agents/${agentForm.id}`, {
@@ -763,7 +874,6 @@ export default function App() {
             method: 'POST',
             body: JSON.stringify(payload),
           })
-
       await refreshAgents()
       await loadAgentDetails(result.agent.id)
       showToast('Agent saved.')
@@ -772,73 +882,22 @@ export default function App() {
     }
   }
 
-  async function quickRun(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    if (!selectedAgentId) {
-      showToast('Select an agent first.')
-      return
-    }
-
-    try {
-      const result = await api<{ run: RunRecord }>(`/api/agents/${selectedAgentId}/runs`, {
-        method: 'POST',
-        body: JSON.stringify({ prompt: quickRunPrompt }),
-      })
-      setQuickRunPrompt('')
-      revealRightSidebar()
-      showToast(`Run ${result.run.id} started.`)
-      await refreshRunsForSelection()
-      await refreshAgents()
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not start run.')
-    }
-  }
-
-  async function runOnCurrentNote() {
-    if (!selectedAgentId) {
-      revealRightSidebar()
-      showToast('Select an agent first.')
-      return
-    }
-
-    if (!currentDocument?.path) {
-      showToast('Open a note first.')
-      return
-    }
-
-    const prompt = `Review the note at \`${currentDocument.path}\`. Improve its clarity and structure, preserve the author's intent, and write the results back into the vault if a meaningful update is warranted.`
-
-    try {
-      const result = await api<{ run: RunRecord }>(`/api/agents/${selectedAgentId}/runs`, {
-        method: 'POST',
-        body: JSON.stringify({ prompt }),
-      })
-      revealRightSidebar()
-      showToast(`Run ${result.run.id} started.`)
-      await refreshRunsForSelection()
-      await refreshAgents()
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Could not start run.')
-    }
-  }
-
   async function saveJob(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
     if (!selectedAgentId) {
-      showToast('Select an agent first.')
+      showToast('Choose an agent first.')
       return
     }
-
     const payload = {
       name: jobForm.name,
       prompt: jobForm.prompt,
-      schedule_type: jobForm.scheduleType,
+      trigger_type: jobForm.triggerType,
       interval_minutes: jobForm.intervalMinutes,
+      cron_expression: jobForm.cronExpression,
+      watch_path: jobForm.watchPath,
+      watch_debounce_seconds: jobForm.watchDebounceSeconds,
       enabled: jobForm.enabled,
     }
-
     try {
       if (jobForm.id) {
         await api<{ job: JobRecord }>(`/api/jobs/${jobForm.id}`, {
@@ -851,10 +910,8 @@ export default function App() {
           body: JSON.stringify(payload),
         })
       }
-      await loadAgentDetails(selectedAgentId)
+      await Promise.all([loadAgentDetails(selectedAgentId), refreshActivityBundle(), refreshAgents()])
       setJobForm(blankJobForm())
-      setSelectedJobId(null)
-      setJobConfigOpen(false)
       showToast('Job saved.')
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not save job.')
@@ -863,29 +920,88 @@ export default function App() {
 
   async function runJob(jobId: string) {
     try {
-      const result = await api<{ run: RunRecord }>(`/api/jobs/${jobId}/run`, { method: 'POST' })
-      showToast(`Run ${result.run.id} started.`)
-      await refreshRunsForSelection()
-      await refreshAgents()
+      await api<{ run: RunRecord }>(`/api/jobs/${jobId}/run`, { method: 'POST' })
+      await Promise.all([refreshActivityBundle(), refreshAgents()])
+      showToast('Job started.')
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not start job.')
     }
   }
 
+  async function submitAsk(
+    event: FormEvent<HTMLFormElement> | null,
+    input: string,
+    { reset }: { reset: () => void },
+  ) {
+    event?.preventDefault()
+    if (!input.trim()) {
+      showToast('Write a prompt first.')
+      return
+    }
+    const target = commandTarget(agents, input, currentDocument?.path ?? '')
+    if (!target.agent) {
+      showToast('No agent matches this request yet.')
+      return
+    }
+    try {
+      const result = await api<AskResponse>('/api/ask', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: target.cleanedPrompt,
+          agent_id: target.agent.id,
+          context_path: currentDocument?.path ?? null,
+        }),
+      })
+      reset()
+      setCommandPaletteOpen(false)
+      revealRightSidebar()
+      if (result.mode === 'steer') {
+        showToast(`${target.agent.name} received your follow-up.`)
+      } else {
+        showToast(`${target.agent.name} started a run.`)
+      }
+      await Promise.all([refreshActivityBundle(), refreshAgents()])
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not ask the agent.')
+    }
+  }
+
+  async function replyToAttention(activityId: string) {
+    const text = replyDrafts[activityId]?.trim()
+    if (!text) {
+      showToast('Write a reply first.')
+      return
+    }
+    try {
+      await api<{ activity: ActivityRecord }>(`/api/attention/${activityId}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      })
+      setReplyDrafts((current) => ({ ...current, [activityId]: '' }))
+      await refreshActivityBundle()
+      showToast('Reply sent.')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not send reply.')
+    }
+  }
+
+  async function dismissAttention(activityId: string) {
+    try {
+      await api<{ activity: ActivityRecord }>(`/api/attention/${activityId}/dismiss`, { method: 'POST' })
+      await refreshActivityBundle()
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not dismiss request.')
+    }
+  }
+
   function resetAgentForm() {
-    setSelectedAgentId(null)
-    setSelectedJobId(null)
-    setSelectedRunId(runs[0]?.id ?? null)
     setAgentForm(blankAgentForm(defaults))
-    setJobs([])
-    setQuickRunPrompt('')
-    setAgentConfigOpen(true)
+    setJobForm(blankJobForm())
+    setSelectedAgentId(agents[0]?.id ?? null)
   }
 
   function fillJobForm(job: JobRecord) {
-    setSelectedJobId(job.id)
     setJobForm(jobToForm(job))
-    setJobConfigOpen(true)
   }
 
   function currentDocumentStateKind() {
@@ -910,13 +1026,17 @@ export default function App() {
     setSaveStateLabel('Unsaved')
   }
 
+  function openActivityItem(item: ActivityRecord) {
+    const path = item.primaryPath || item.paths[0]
+    if (path) {
+      void loadDocument(path, { bypassConfirm: false })
+    }
+  }
+
   const accountLabel = account?.loggedIn ? account.email || 'Logged in' : 'Not logged in'
   const nextRunLabel = nextScheduledRun(agents)
-  const statusAgentLabel = selectedAgent
-    ? selectedAgent.isRunning
-      ? `${selectedAgent.name} running`
-      : selectedAgent.name
-    : 'No agent'
+  const activeAgents = agents.filter((agent) => agent.isRunning)
+  const enabledAgents = agents.filter((agent) => agent.enabled)
 
   return (
     <div className="workspace">
@@ -944,11 +1064,11 @@ export default function App() {
             <circle cx="7.5" cy="7.5" r="5.5" />
             <path d="M12 12l4 4" />
           </svg>
-              <input
-                ref={searchInputRef}
-                name="search"
-                type="search"
-                placeholder="Search notes..."
+          <input
+            ref={searchInputRef}
+            name="search"
+            type="search"
+            placeholder="Search notes..."
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             onFocus={() => {
@@ -974,10 +1094,7 @@ export default function App() {
                       <span className="card-title">{result.title || result.path}</span>
                       <span className="card-meta search-path">{result.path}</span>
                     </div>
-                    <div
-                      className="card-meta"
-                      dangerouslySetInnerHTML={{ __html: highlightSnippet(result.snippet || '') }}
-                    />
+                    <div className="card-meta" dangerouslySetInnerHTML={{ __html: highlightSnippet(result.snippet || '') }} />
                   </button>
                 ))
               )}
@@ -1007,12 +1124,12 @@ export default function App() {
             id="toggle-right-sidebar-button"
             type="button"
             className="icon-btn"
-            title="Toggle agent panel"
+            title="Toggle activity panel"
             onClick={toggleRightSidebar}
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
               <rect x="2" y="2" width="14" height="14" rx="2" />
-              <path d="M11 2v14" />
+              <path d="M6 5.5h6M6 9h6M6 12.5h4" />
             </svg>
           </button>
         </div>
@@ -1061,6 +1178,8 @@ export default function App() {
             <FileTree
               nodes={tree?.children ?? []}
               selectedPath={selectedDocumentPath}
+              recentActivity={recentFileActivity}
+              watchedFolders={watchedFolders}
               onSelect={(path) => void loadDocument(path)}
             />
           </nav>
@@ -1114,17 +1233,8 @@ export default function App() {
                 <h1 className="doc-title">{currentDocument?.title || 'Welcome'}</h1>
               </div>
               <div className="doc-actions">
-                <button
-                  type="button"
-                  className="btn-ghost btn-sm"
-                  title="Run ambient agent on this note"
-                  disabled={!selectedAgentId || !currentDocument?.editable}
-                  onClick={() => void runOnCurrentNote()}
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="5,3 13,8 5,13" />
-                  </svg>
-                  Run
+                <button type="button" className="btn-ghost btn-sm" onClick={() => setCommandPaletteOpen(true)}>
+                  Ask Agent
                 </button>
                 <span className={`state-pill ${currentDocumentStateKind()}`.trim()}>
                   {currentDocument ? saveStateLabel : 'Idle'}
@@ -1139,6 +1249,41 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {currentFileActivity && !dismissedActivityIds.includes(currentFileActivity.activityId) ? (
+              <div className="doc-activity-banner">
+                <div>
+                  <strong>{currentFileActivity.agentName || 'Agent'}</strong> touched this {formatDate(currentFileActivity.createdAt)}
+                  <div className="doc-activity-copy">{currentFileActivity.title}</div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn-sm"
+                  onClick={() => setDismissedActivityIds((current) => [...current, currentFileActivity.activityId])}
+                >
+                  ×
+                </button>
+              </div>
+            ) : null}
+
+            {watchingAgents.length > 0 ? (
+              <div className="watching-strip">
+                <span className="watching-label">Agents watching:</span>
+                {watchingAgents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    className="watching-chip"
+                    onClick={() => {
+                      setCommandInput(`@${agent.name} `)
+                      setCommandPaletteOpen(true)
+                    }}
+                  >
+                    {agent.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             <div className={`doc-content doc-content-${documentViewMode}`.trim()}>
               <textarea
@@ -1159,388 +1304,129 @@ export default function App() {
 
         <aside className={`sidebar-right ${rightSidebarOpen ? '' : 'right-sidebar-collapsed'}`.trim()}>
           <div className="sidebar-scroll">
-            <div className="panel-section agent-selector-section">
+            <div className="panel-section activity-header">
               <div className="section-head">
-                <span className="section-label">Agents</span>
-                <button
-                  type="button"
-                  className="icon-btn-sm"
-                  title="New agent"
-                  onClick={() => {
-                    revealRightSidebar()
-                    resetAgentForm()
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M8 3v10M3 8h10" />
+                <span className="section-label">Activity</span>
+                <button type="button" className="icon-btn-sm" onClick={() => setAgentModalOpen(true)}>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                    <circle cx="8" cy="8" r="2.2" />
+                    <path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5L3.4 3.4" />
                   </svg>
                 </button>
               </div>
-              <div className="agent-picker">
-                {agents.length === 0 ? (
-                  <span className="empty-state">No agents yet.</span>
+            </div>
+
+            {visibleAttention.length > 0 ? (
+              <div className="panel-section">
+                <div className="section-head">
+                  <span className="section-label">Attention</span>
+                </div>
+                <div className="feed-list">
+                  {visibleAttention.map((item) => (
+                    <div key={item.id} className="feed-card feed-card-attention">
+                      <div className="feed-title-row">
+                        <span className={`feed-dot feed-dot-${activityIcon(item)}`.trim()} />
+                        <span className="card-title">{item.title}</span>
+                        <span className={`status-pill ${statusClass(item.status)}`.trim()}>{item.status}</span>
+                      </div>
+                      <p className="card-meta">{formatDate(item.createdAt)}</p>
+                      <p className="feed-body">{item.body}</p>
+                      <div className="attention-actions">
+                        <input
+                          type="text"
+                          placeholder="Reply..."
+                          value={replyDrafts[item.id] ?? ''}
+                          onChange={(event) => setReplyDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                        />
+                        <button type="button" className="btn-primary btn-sm" onClick={() => void replyToAttention(item.id)}>
+                          Reply
+                        </button>
+                        <button type="button" className="btn-ghost btn-sm" onClick={() => void dismissAttention(item.id)}>
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="panel-section">
+              <div className="section-head">
+                <span className="section-label">Today</span>
+              </div>
+              <div className="feed-list">
+                {activity.today.length === 0 ? (
+                  <div className="empty-state">No activity yet.</div>
                 ) : (
-                  agents.map((agent) => {
-                    const dotClass = agent.isRunning ? 'dot-running' : agent.enabled ? 'dot-ready' : 'dot-off'
-                    return (
-                      <button
-                        key={agent.id}
-                        type="button"
-                        className={`agent-chip ${agent.id === selectedAgentId ? 'agent-chip-active' : ''}`.trim()}
-                        onClick={() => void loadAgentDetails(agent.id)}
-                      >
-                        <span className={`agent-chip-dot ${dotClass}`.trim()} />
-                        {agent.name}
-                      </button>
-                    )
-                  })
+                  activity.today.map((item) => (
+                    <button key={item.id} type="button" className="feed-card" onClick={() => openActivityItem(item)}>
+                      <div className="feed-title-row">
+                        <span className={`feed-dot feed-dot-${activityIcon(item)}`.trim()} />
+                        <span className="card-title">{item.title}</span>
+                        <span className="card-meta">{formatDate(item.createdAt)}</span>
+                      </div>
+                      {item.primaryPath ? <p className="card-meta">{item.primaryPath}</p> : null}
+                      <p className="feed-body">{item.body || 'No details.'}</p>
+                    </button>
+                  ))
                 )}
               </div>
             </div>
 
-            <div className="panel-section agent-context">
-              <div className="agent-context-head">
-                <div className="agent-context-info">
-                  <h3 className="agent-context-name">{selectedAgent?.name || 'No agent selected'}</h3>
-                  <p className="agent-context-meta">
-                    {selectedAgent
-                      ? [selectedAgent.scopePath || null, selectedAgent.threadId ? `Thread ${selectedAgent.threadId.slice(0, 8)}...` : 'No thread yet']
-                          .filter(Boolean)
-                          .join(' · ')
-                      : 'Create an agent to get started.'}
-                  </p>
-                </div>
-                <span
-                  className={`agent-status-dot ${
-                    selectedAgent?.isRunning ? 'dot-running' : selectedAgent?.enabled ? 'dot-ready' : selectedAgent ? 'dot-off' : ''
-                  }`.trim()}
-                />
+            <div className="panel-section">
+              <div className="section-head">
+                <span className="section-label">Upcoming</span>
               </div>
+              <div className="feed-list">
+                {activity.upcoming.length === 0 ? (
+                  <div className="empty-state">No upcoming jobs.</div>
+                ) : (
+                  activity.upcoming.map((item) => (
+                    <div key={item.id} className="feed-card feed-card-upcoming">
+                      <div className="feed-title-row">
+                        <span className={`feed-dot feed-dot-${activityIcon(item)}`.trim()} />
+                        <span className="card-title">{item.agentName}</span>
+                        <span className="card-meta">{item.nextRunAt ? formatDate(item.nextRunAt) : 'Watching'}</span>
+                      </div>
+                      <p className="card-meta">{item.jobName}</p>
+                      <p className="feed-body">
+                        {item.triggerType === 'file_watch'
+                          ? `Watching ${item.watchPath || 'scope'} for changes`
+                          : item.nextRunAt
+                            ? `Next run ${formatDate(item.nextRunAt)}`
+                            : 'Scheduled'}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
 
-              <form className="quick-run-form" onSubmit={(event) => void quickRun(event)}>
-                <textarea
-                  rows={2}
-                  name="quick-run-prompt"
-                  placeholder="Ask this agent to do something..."
-                  value={quickRunPrompt}
-                  onChange={(event) => setQuickRunPrompt(event.target.value)}
+            <div className="panel-section ask-panel">
+              <form
+                className="quick-run-form"
+                onSubmit={(event) =>
+                  void submitAsk(event, sidebarAskInput, {
+                    reset: () => setSidebarAskInput(''),
+                  })
+                }
+              >
+                <input
+                  type="text"
+                  name="sidebar-ask"
+                  placeholder="Ask an agent..."
+                  value={sidebarAskInput}
+                  onChange={(event) => setSidebarAskInput(event.target.value)}
                 />
-                <button type="submit" className="btn-primary btn-sm" disabled={!selectedAgentId}>
-                  Run
+                <button type="submit" className="btn-primary btn-sm">
+                  Send
                 </button>
               </form>
-            </div>
-
-            <div className="panel-section">
-              <div className="section-head">
-                <span className="section-label">Runs</span>
-              </div>
-              <div className="run-list">
-                {runs.length === 0 ? (
-                  <div className="empty-state">No runs yet.</div>
-                ) : (
-                  runs.map((run) => (
-                    <button
-                      key={run.id}
-                      type="button"
-                      className={`run-card ${run.id === selectedRunId ? 'run-card-active' : ''}`.trim()}
-                      onClick={() => setSelectedRunId(run.id)}
-                    >
-                      <div className="card-row">
-                        <span className="card-title">{shortRunTitle(run)}</span>
-                        <span className={`status-pill ${statusClass(run.status)}`.trim()}>{run.status}</span>
-                      </div>
-                      <p className="card-meta">
-                        {run.trigger} &middot; {formatDate(run.startedAt)}
-                      </p>
-                    </button>
-                  ))
-                )}
-              </div>
-              {selectedRun ? (
-                <div className="run-detail">
-                  <div className="card-row detail-row">
-                    <span className="run-id-label">{selectedRun.id}</span>
-                    <span className={`status-pill ${statusClass(selectedRun.status)}`.trim()}>{selectedRun.status}</span>
-                  </div>
-                  <div className="card-meta">
-                    {formatDate(selectedRun.startedAt)} &rarr; {formatDate(selectedRun.finishedAt)}
-                  </div>
-                  {selectedRun.touchedPaths.length > 0 ? (
-                    <div className="card-meta">Touched: {selectedRun.touchedPaths.join(', ')}</div>
-                  ) : null}
-                  <div className="card-meta run-detail-text">{selectedRun.finalText || selectedRun.errorText || 'No summary.'}</div>
-                  {selectedRun.outputNotePath ? (
-                    <div className="run-detail-actions">
-                      <button
-                        type="button"
-                        className="btn-ghost btn-sm"
-                        onClick={() => void loadDocument(selectedRun.outputNotePath as string, { bypassConfirm: false })}
-                      >
-                        Open note
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="run-detail empty-state">Select a run to see details.</div>
-              )}
-            </div>
-
-            <div className="panel-section">
-              <div className="section-head">
-                <span className="section-label">Jobs</span>
-                <button
-                  type="button"
-                  className="icon-btn-sm"
-                  title="New job"
-                  onClick={() => {
-                    revealRightSidebar()
-                    setSelectedJobId(null)
-                    setJobForm(blankJobForm())
-                    setJobConfigOpen(true)
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M8 3v10M3 8h10" />
-                  </svg>
-                </button>
-              </div>
-              <div className="job-list">
-                {jobs.length === 0 ? (
-                  <div className="empty-state">No jobs for this agent.</div>
-                ) : (
-                  jobs.map((job) => (
-                    <div key={job.id} className={`job-card ${job.id === selectedJobId ? 'job-card-active' : ''}`.trim()}>
-                      <div className="card-row">
-                        <span className="card-title">{job.name}</span>
-                        <span className={`status-pill ${job.enabled ? 'success' : 'muted'}`.trim()}>
-                          {job.scheduleType === 'interval' ? `${job.intervalMinutes}m` : 'Manual'}
-                        </span>
-                      </div>
-                      <p className="card-meta">Next: {formatDate(job.nextRunAt)}</p>
-                      <div className="form-row job-card-actions">
-                        <button type="button" className="btn-ghost btn-sm" onClick={() => fillJobForm(job)}>
-                          Edit
-                        </button>
-                        <button type="button" className="btn-primary btn-sm" onClick={() => void runJob(job.id)}>
-                          Run now
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-              <details
-                className="config-details"
-                open={jobConfigOpen}
-                onToggle={(event) => setJobConfigOpen((event.currentTarget as HTMLDetailsElement).open)}
-              >
-                <summary>{jobForm.id ? 'Edit job' : 'New job'}</summary>
-                <form className="config-form" onSubmit={(event) => void saveJob(event)}>
-                  <label>
-                    <span>Name</span>
-                    <input
-                      name="job-name"
-                      type="text"
-                      placeholder="Daily scan"
-                      required
-                      value={jobForm.name}
-                      onChange={(event) => setJobForm((current) => ({ ...current, name: event.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Prompt</span>
-                    <textarea
-                      rows={3}
-                      name="job-prompt"
-                      placeholder="What should happen each run."
-                      required
-                      value={jobForm.prompt}
-                      onChange={(event) => setJobForm((current) => ({ ...current, prompt: event.target.value }))}
-                    />
-                  </label>
-                  <div className="form-grid-2">
-                    <label>
-                      <span>Schedule</span>
-                      <select
-                        name="job-schedule-type"
-                        value={jobForm.scheduleType}
-                        onChange={(event) =>
-                          setJobForm((current) => ({
-                            ...current,
-                            scheduleType: event.target.value as JobFormState['scheduleType'],
-                          }))
-                        }
-                      >
-                        <option value="interval">Heartbeat</option>
-                        <option value="manual">Manual</option>
-                      </select>
-                    </label>
-                    <label>
-                      <span>Interval (min)</span>
-                      <input
-                        name="job-interval-minutes"
-                        type="number"
-                        min="1"
-                        step="1"
-                        disabled={jobForm.scheduleType !== 'interval'}
-                        value={jobForm.intervalMinutes}
-                        onChange={(event) =>
-                          setJobForm((current) => ({
-                            ...current,
-                            intervalMinutes: Number(event.target.value || 0),
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-                  <label className="checkbox-label">
-                    <input
-                      name="job-enabled"
-                      type="checkbox"
-                      checked={jobForm.enabled}
-                      onChange={(event) => setJobForm((current) => ({ ...current, enabled: event.target.checked }))}
-                    />
-                    <span>Enabled</span>
-                  </label>
-                  <div className="form-row">
-                    <button type="submit" className="btn-primary btn-sm">
-                      Save job
-                    </button>
-                  </div>
-                </form>
-              </details>
-            </div>
-
-            <div className="panel-section">
-              <details
-                className="config-details"
-                open={agentConfigOpen}
-                onToggle={(event) => setAgentConfigOpen((event.currentTarget as HTMLDetailsElement).open)}
-              >
-                <summary>Agent settings</summary>
-                <form className="config-form" onSubmit={(event) => void saveAgent(event)}>
-                  <label>
-                    <span>Name</span>
-                    <input
-                      name="agent-name"
-                      type="text"
-                      placeholder="Research Copilot"
-                      required
-                      value={agentForm.name}
-                      onChange={(event) => setAgentForm((current) => ({ ...current, name: event.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Scope</span>
-                    <input
-                      name="agent-scope-path"
-                      type="text"
-                      placeholder="Research"
-                      value={agentForm.scopePath}
-                      onChange={(event) => setAgentForm((current) => ({ ...current, scopePath: event.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Output dir</span>
-                    <input
-                      name="agent-output-dir"
-                      type="text"
-                      placeholder="Research/Inbox"
-                      value={agentForm.outputDir}
-                      onChange={(event) => setAgentForm((current) => ({ ...current, outputDir: event.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    <span>Prompt</span>
-                    <textarea
-                      rows={4}
-                      name="agent-prompt"
-                      placeholder="Describe the agent's role."
-                      required
-                      value={agentForm.prompt}
-                      onChange={(event) => setAgentForm((current) => ({ ...current, prompt: event.target.value }))}
-                    />
-                  </label>
-                  <div className="form-grid-2">
-                    <label>
-                      <span>Model</span>
-                      <input
-                        name="agent-model"
-                        type="text"
-                        value={agentForm.model}
-                        onChange={(event) => setAgentForm((current) => ({ ...current, model: event.target.value }))}
-                      />
-                    </label>
-                    <label>
-                      <span>Effort</span>
-                      <select
-                        name="agent-reasoning-effort"
-                        value={agentForm.reasoningEffort}
-                        onChange={(event) =>
-                          setAgentForm((current) => ({ ...current, reasoningEffort: event.target.value }))
-                        }
-                      >
-                        {EFFORTS.map((value) => (
-                          <option key={value} value={value}>
-                            {value}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Approval</span>
-                      <select
-                        name="agent-approval-policy"
-                        value={agentForm.approvalPolicy}
-                        onChange={(event) =>
-                          setAgentForm((current) => ({ ...current, approvalPolicy: event.target.value }))
-                        }
-                      >
-                        {APPROVALS.map((value) => (
-                          <option key={value} value={value}>
-                            {value}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Sandbox</span>
-                      <select
-                        name="agent-sandbox-mode"
-                        value={agentForm.sandboxMode}
-                        onChange={(event) =>
-                          setAgentForm((current) => ({ ...current, sandboxMode: event.target.value }))
-                        }
-                      >
-                        {SANDBOXES.map((value) => (
-                          <option key={value} value={value}>
-                            {value}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <label className="checkbox-label">
-                    <input
-                      name="agent-enabled"
-                      type="checkbox"
-                      checked={agentForm.enabled}
-                      onChange={(event) => setAgentForm((current) => ({ ...current, enabled: event.target.checked }))}
-                    />
-                    <span>Enabled</span>
-                  </label>
-                  <div className="form-row">
-                    <button type="submit" className="btn-primary btn-sm">
-                      Save
-                    </button>
-                    <button type="button" className="btn-ghost btn-sm" onClick={resetAgentForm}>
-                      Reset
-                    </button>
-                  </div>
-                </form>
-              </details>
+              <button type="button" className="ask-shortcut" onClick={() => setCommandPaletteOpen(true)}>
+                <span>Command palette</span>
+                <kbd>⌘⇧K</kbd>
+              </button>
             </div>
           </div>
         </aside>
@@ -1555,11 +1441,292 @@ export default function App() {
           <span>{saveStateLabel}</span>
         </div>
         <div className="status-right">
-          <span>{statusAgentLabel}</span>
+          <span className="agent-dot-cluster">
+            {activeAgents.map((agent) => (
+              <span key={agent.id} className="status-agent-dot dot-running" title={agent.name} />
+            ))}
+            {enabledAgents.slice(activeAgents.length).map((agent) => (
+              <span key={agent.id} className="status-agent-dot dot-ready" title={agent.name} />
+            ))}
+          </span>
+          <span>{activeAgents.length} active</span>
           <span className="status-sep">&middot;</span>
-          <span>{nextRunLabel ? `Next: ${formatDate(nextRunLabel)}` : 'No heartbeat'}</span>
+          <span>{Math.max(enabledAgents.length - activeAgents.length, 0)} idle</span>
+          <span className="status-sep">&middot;</span>
+          <span>{nextRunLabel ? `Next ${formatDate(nextRunLabel)}` : 'No schedule'}</span>
+          <span className="status-sep">&middot;</span>
+          <button type="button" className="status-attention-btn" onClick={revealRightSidebar}>
+            ⚠ {visibleAttention.length}
+          </button>
         </div>
       </footer>
+
+      {commandPaletteOpen ? (
+        <div className="overlay-backdrop" onClick={() => setCommandPaletteOpen(false)}>
+          <div className="command-palette" onClick={(event) => event.stopPropagation()}>
+            <form
+              onSubmit={(event) =>
+                void submitAsk(event, commandInput, {
+                  reset: () => setCommandInput(''),
+                })
+              }
+            >
+              <input
+                ref={commandInputRef}
+                type="text"
+                placeholder="@Agent ask something..."
+                value={commandInput}
+                onChange={(event) => setCommandInput(event.target.value)}
+              />
+            </form>
+            <div className="command-hint">
+              {commandRoute.agent ? (
+                <span>
+                  ↳ routes to <strong>{commandRoute.agent.name}</strong>
+                  {commandRoute.agent.scopePath ? ` in ${commandRoute.agent.scopePath}` : ''}
+                </span>
+              ) : (
+                <span>Type @Agent or open a note inside an agent scope.</span>
+              )}
+            </div>
+            <div className="command-recent">
+              {agents.slice(0, 5).map((agent) => (
+                <button key={agent.id} type="button" onClick={() => setCommandInput(`@${agent.name} `)}>
+                  <strong>{agent.name}</strong>
+                  <span>{agent.scopePath || 'whole vault'}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {agentModalOpen ? (
+        <div className="overlay-backdrop" onClick={() => setAgentModalOpen(false)}>
+          <div className="agent-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h2>Agents</h2>
+              <button type="button" className="icon-btn-sm" onClick={() => setAgentModalOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-grid">
+              <div className="modal-list">
+                {agents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    className={`modal-agent-row ${agent.id === selectedAgentId ? 'modal-agent-row-active' : ''}`.trim()}
+                    onClick={() => void loadAgentDetails(agent.id)}
+                  >
+                    <span className={`agent-chip-dot ${agent.isRunning ? 'dot-running' : agent.enabled ? 'dot-ready' : 'dot-off'}`.trim()} />
+                    <div>
+                      <strong>{agent.name}</strong>
+                      <p>{agent.scopePath || 'whole vault'}</p>
+                    </div>
+                  </button>
+                ))}
+                <button type="button" className="btn-ghost btn-sm" onClick={resetAgentForm}>
+                  New agent
+                </button>
+              </div>
+              <div className="modal-main">
+                <form className="config-form" onSubmit={(event) => void saveAgent(event)}>
+                  <label>
+                    <span>Name</span>
+                    <input value={agentForm.name} onChange={(event) => setAgentForm((current) => ({ ...current, name: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>Scope</span>
+                    <input value={agentForm.scopePath} onChange={(event) => setAgentForm((current) => ({ ...current, scopePath: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>Output dir</span>
+                    <input value={agentForm.outputDir} onChange={(event) => setAgentForm((current) => ({ ...current, outputDir: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>Prompt</span>
+                    <textarea rows={4} value={agentForm.prompt} onChange={(event) => setAgentForm((current) => ({ ...current, prompt: event.target.value }))} />
+                  </label>
+                  <div className="form-grid-2">
+                    <label>
+                      <span>Model</span>
+                      <input value={agentForm.model} onChange={(event) => setAgentForm((current) => ({ ...current, model: event.target.value }))} />
+                    </label>
+                    <label>
+                      <span>Effort</span>
+                      <select value={agentForm.reasoningEffort} onChange={(event) => setAgentForm((current) => ({ ...current, reasoningEffort: event.target.value }))}>
+                        {EFFORTS.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Approval</span>
+                      <select value={agentForm.approvalPolicy} onChange={(event) => setAgentForm((current) => ({ ...current, approvalPolicy: event.target.value }))}>
+                        {APPROVALS.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Sandbox</span>
+                      <select value={agentForm.sandboxMode} onChange={(event) => setAgentForm((current) => ({ ...current, sandboxMode: event.target.value }))}>
+                        {SANDBOXES.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={agentForm.enabled}
+                      onChange={(event) => setAgentForm((current) => ({ ...current, enabled: event.target.checked }))}
+                    />
+                    <span>Enabled</span>
+                  </label>
+                  <div className="form-row">
+                    <button type="submit" className="btn-primary btn-sm">
+                      Save agent
+                    </button>
+                  </div>
+                </form>
+
+                <div className="modal-section">
+                  <div className="section-head">
+                    <span className="section-label">Jobs</span>
+                  </div>
+                  <div className="job-list modal-job-list">
+                    {jobs.map((job) => (
+                      <div key={job.id} className="job-card">
+                        <div className="card-row">
+                          <span className="card-title">{job.name}</span>
+                          <span className={`status-pill ${job.enabled ? 'success' : 'muted'}`.trim()}>{job.triggerType}</span>
+                        </div>
+                        <p className="card-meta">{describeJobSchedule(job)}</p>
+                        <div className="form-row job-card-actions">
+                          <button type="button" className="btn-ghost btn-sm" onClick={() => fillJobForm(job)}>
+                            Edit
+                          </button>
+                          <button type="button" className="btn-primary btn-sm" onClick={() => void runJob(job.id)}>
+                            Run
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <form className="config-form" onSubmit={(event) => void saveJob(event)}>
+                    <label>
+                      <span>Name</span>
+                      <input value={jobForm.name} onChange={(event) => setJobForm((current) => ({ ...current, name: event.target.value }))} />
+                    </label>
+                    <label>
+                      <span>Prompt</span>
+                      <textarea rows={3} value={jobForm.prompt} onChange={(event) => setJobForm((current) => ({ ...current, prompt: event.target.value }))} />
+                    </label>
+                    <div className="form-grid-2">
+                      <label>
+                        <span>Trigger</span>
+                        <select value={jobForm.triggerType} onChange={(event) => setJobForm((current) => ({ ...current, triggerType: event.target.value as JobFormState['triggerType'] }))}>
+                          {TRIGGERS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>Interval (min)</span>
+                        <input
+                          type="number"
+                          min="1"
+                          disabled={jobForm.triggerType !== 'interval'}
+                          value={jobForm.intervalMinutes}
+                          onChange={(event) => setJobForm((current) => ({ ...current, intervalMinutes: Number(event.target.value || 0) }))}
+                        />
+                      </label>
+                      <label>
+                        <span>Cron</span>
+                        <input
+                          disabled={jobForm.triggerType !== 'cron'}
+                          value={jobForm.cronExpression}
+                          onChange={(event) => setJobForm((current) => ({ ...current, cronExpression: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        <span>Watch path</span>
+                        <input
+                          disabled={jobForm.triggerType !== 'file_watch'}
+                          value={jobForm.watchPath}
+                          onChange={(event) => setJobForm((current) => ({ ...current, watchPath: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        <span>Debounce (sec)</span>
+                        <input
+                          type="number"
+                          min="1"
+                          disabled={jobForm.triggerType !== 'file_watch'}
+                          value={jobForm.watchDebounceSeconds}
+                          onChange={(event) => setJobForm((current) => ({ ...current, watchDebounceSeconds: Number(event.target.value || 1) }))}
+                        />
+                      </label>
+                    </div>
+                    <label className="checkbox-label">
+                      <input type="checkbox" checked={jobForm.enabled} onChange={(event) => setJobForm((current) => ({ ...current, enabled: event.target.checked }))} />
+                      <span>Enabled</span>
+                    </label>
+                    <div className="form-row">
+                      <button type="submit" className="btn-primary btn-sm">
+                        Save job
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="modal-section">
+                  <div className="section-head">
+                    <span className="section-label">Runs</span>
+                  </div>
+                  <div className="run-list modal-run-list">
+                    {runs.map((run) => (
+                      <button
+                        key={run.id}
+                        type="button"
+                        className={`run-card ${run.id === selectedRunId ? 'run-card-active' : ''}`.trim()}
+                        onClick={() => setSelectedRunId(run.id)}
+                      >
+                        <div className="card-row">
+                          <span className="card-title">{shortRunTitle(run)}</span>
+                          <span className={`status-pill ${statusClass(run.status)}`.trim()}>{run.status}</span>
+                        </div>
+                        <p className="card-meta">{formatDate(run.startedAt)}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedRun ? (
+                    <div className="run-detail">
+                      <div className="card-row detail-row">
+                        <span className="run-id-label">{selectedRun.id}</span>
+                        <span className={`status-pill ${statusClass(selectedRun.status)}`.trim()}>{selectedRun.status}</span>
+                      </div>
+                      <div className="card-meta">{selectedRun.summaryText || selectedRun.errorText || 'No summary.'}</div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className={`toast ${toastMessage ? '' : 'hidden'}`.trim()}>{toastMessage}</div>
     </div>
