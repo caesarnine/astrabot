@@ -1,0 +1,89 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - button "Toggle file explorer (Cmd+B)" [ref=e6] [cursor=pointer]:
+        - img [ref=e7]
+      - generic [ref=e9]:
+        - generic [ref=e10]: A
+        - generic [ref=e11]: Astra
+    - generic [ref=e12]:
+      - img
+      - searchbox "Search notes..." [ref=e13]
+      - generic: ⌘K
+    - generic [ref=e14]:
+      - button "New note" [ref=e15] [cursor=pointer]:
+        - img [ref=e16]
+      - generic [ref=e18]:
+        - generic [ref=e19]: Not logged in
+        - button "Login" [ref=e20] [cursor=pointer]
+      - button "Toggle activity panel" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+  - generic [ref=e25]:
+    - complementary [ref=e26]:
+      - generic [ref=e27]:
+        - heading "Vault" [level=2] [ref=e28]
+        - button "New note" [ref=e29] [cursor=pointer]:
+          - img [ref=e30]
+      - navigation [ref=e32]:
+        - generic [ref=e33]:
+          - img [ref=e34]
+          - paragraph [ref=e37]: Your vault is empty.
+          - paragraph [ref=e38]: Create a note to get started.
+    - main [ref=e39]:
+      - generic [ref=e43]:
+        - button "Edit" [ref=e44] [cursor=pointer]
+        - button "Preview" [ref=e45] [cursor=pointer]
+        - button "Split" [ref=e46] [cursor=pointer]
+      - generic [ref=e48]:
+        - generic [ref=e50]: A
+        - heading "Astra" [level=1] [ref=e51]
+        - paragraph [ref=e52]: Your knowledge workspace with ambient agents.
+        - generic [ref=e53]:
+          - button "New Note" [ref=e54] [cursor=pointer]:
+            - img [ref=e55]
+            - text: New Note
+          - button "Ask an Agent" [ref=e57] [cursor=pointer]:
+            - img [ref=e58]
+            - text: Ask an Agent
+          - button "Search" [ref=e60] [cursor=pointer]:
+            - img [ref=e61]
+            - text: Search
+    - complementary [ref=e64]:
+      - generic [ref=e65]:
+        - generic [ref=e66]:
+          - generic [ref=e67]:
+            - generic [ref=e68]: Agents
+            - button "Manage agents" [ref=e69] [cursor=pointer]:
+              - img [ref=e70]
+          - generic [ref=e73]:
+            - paragraph [ref=e74]: No agents yet.
+            - button "Create one" [ref=e75] [cursor=pointer]
+        - generic [ref=e76]:
+          - generic [ref=e78]: Today
+          - generic [ref=e80]:
+            - img [ref=e81]
+            - paragraph [ref=e84]: No activity yet today.
+            - paragraph [ref=e85]: Ask an agent something to get started.
+        - generic [ref=e86]:
+          - generic [ref=e87]:
+            - textbox "@Agent ask something..." [ref=e88]
+            - button [ref=e89] [cursor=pointer]:
+              - img [ref=e90]
+          - button "Command palette ⌘⇧K" [ref=e92] [cursor=pointer]:
+            - generic [ref=e93]: Command palette
+            - generic [ref=e94]: ⌘⇧K
+  - contentinfo [ref=e95]:
+    - generic [ref=e96]:
+      - generic [ref=e97]: No note
+      - generic [ref=e98]: ·
+      - generic [ref=e99]: 0 words
+      - generic [ref=e100]: ·
+      - generic [ref=e101]: Idle
+    - generic [ref=e102]:
+      - generic [ref=e103]: 0 active
+      - generic [ref=e104]: ·
+      - generic [ref=e105]: 0 idle
+      - generic [ref=e106]: ·
+      - generic [ref=e107]: No schedule
+      - generic [ref=e108]: ·
+      - button "⚠ 0" [ref=e109] [cursor=pointer]

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import type { FileActivityRecord, TreeNode } from '../types'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import type { FileActivityRecord, TreeNode, WatchedAgentInfo } from '../types'
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -9,7 +9,7 @@ interface FileTreeProps {
   nodes: TreeNode[]
   selectedPath: string
   recentActivity: Record<string, FileActivityRecord>
-  watchedFolders: Record<string, string[]>
+  watchedFolders: Record<string, WatchedAgentInfo[]>
   onSelect: (path: string) => void
   onNewNote?: (parentPath: string) => void
 }
@@ -28,9 +28,9 @@ function formatTreeTime(value: string) {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function activityIndicatorClass(activity: FileActivityRecord | undefined) {
+function activityDotClass(activity: FileActivityRecord | undefined) {
   if (!activity) return ''
-  return activity.kind === 'attention' ? 'tree-indicator-attention' : 'tree-indicator-artifact'
+  return activity.kind === 'attention' ? 'tree-dot-amber' : 'tree-dot-teal'
 }
 
 function fileIcon(name: string) {
@@ -44,24 +44,13 @@ function fileIcon(name: string) {
           <path d="M5 5h6M5 8h6M5 11h3" />
         </svg>
       )
-    case 'json':
-    case 'toml':
-    case 'yaml':
-    case 'yml':
+    case 'json': case 'toml': case 'yaml': case 'yml':
       return (
         <svg className="tree-file-icon tree-file-icon-config" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
           <path d="M4 4l4 4-4 4M8 12h4" />
         </svg>
       )
-    case 'py':
-    case 'js':
-    case 'ts':
-    case 'tsx':
-    case 'jsx':
-    case 'sh':
-    case 'sql':
-    case 'css':
-    case 'html':
+    case 'py': case 'js': case 'ts': case 'tsx': case 'jsx': case 'sh': case 'sql': case 'css': case 'html':
       return (
         <svg className="tree-file-icon tree-file-icon-code" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
           <path d="M5.5 4L2.5 8l3 4M10.5 4l3 4-3 4" />
@@ -76,11 +65,6 @@ function fileIcon(name: string) {
   }
 }
 
-function countFiles(node: TreeNode): number {
-  if (node.kind === 'file') return 1
-  return (node.children ?? []).reduce((sum, child) => sum + countFiles(child), 0)
-}
-
 /* ------------------------------------------------------------------ */
 /*  Folder node                                                        */
 /* ------------------------------------------------------------------ */
@@ -90,7 +74,7 @@ interface FolderNodeProps {
   depth: number
   selectedPath: string
   recentActivity: Record<string, FileActivityRecord>
-  watchedFolders: Record<string, string[]>
+  watchedFolders: Record<string, WatchedAgentInfo[]>
   expandedPaths: Set<string>
   onToggle: (path: string) => void
   onSelect: (path: string) => void
@@ -98,24 +82,15 @@ interface FolderNodeProps {
 }
 
 function FolderNode({
-  node,
-  depth,
-  selectedPath,
-  recentActivity,
-  watchedFolders,
-  expandedPaths,
-  onToggle,
-  onSelect,
-  onNewNote,
+  node, depth, selectedPath, recentActivity, watchedFolders, expandedPaths, onToggle, onSelect, onNewNote,
 }: FolderNodeProps) {
   const isOpen = expandedPaths.has(node.path)
-  const watcherNames = watchedFolders[node.path] ?? []
-  const fileCount = countFiles(node)
+  const watchers = watchedFolders[node.path] ?? []
+  const hasRunning = watchers.some((w) => w.running)
   const [hovered, setHovered] = useState(false)
 
   return (
-    <div className="tree-folder" role="treeitem" aria-expanded={isOpen}>
-      {/* Indent guides */}
+    <div className={`tree-folder ${hasRunning ? 'tree-folder-running' : ''}`} role="treeitem" aria-expanded={isOpen}>
       {depth > 0 && (
         <div className="tree-indent-guides" style={{ width: depth * 16 }}>
           {Array.from({ length: depth }, (_, i) => (
@@ -125,7 +100,7 @@ function FolderNode({
       )}
       <button
         type="button"
-        className={`tree-folder-btn ${isOpen ? 'tree-folder-open' : ''} ${watcherNames.length > 0 ? 'tree-folder-watched' : ''}`.trim()}
+        className={`tree-folder-btn ${isOpen ? 'tree-folder-open' : ''} ${watchers.length > 0 ? 'tree-folder-watched' : ''}`}
         style={{ paddingLeft: depth * 16 + 6 }}
         onClick={() => onToggle(node.path)}
         onMouseEnter={() => setHovered(true)}
@@ -143,25 +118,20 @@ function FolderNode({
         </svg>
         <span className="tree-folder-label">{node.name || 'Vault'}</span>
         <span className="tree-folder-end">
-          {watcherNames.length > 0 ? (
-            <span className="tree-scope-badge" title={watcherNames.join(', ')}>
-              <span className="tree-scope-dot" />
-              {watcherNames.length === 1 ? watcherNames[0] : `${watcherNames.length} agents`}
+          {watchers.length > 0 ? (
+            <span className="tree-scope-badge" title={watchers.map((w) => w.name).join(', ')}>
+              <span className={`tree-scope-dot ${hasRunning ? 'tree-scope-dot-running' : ''}`} />
+              {watchers.length === 1
+                ? `${watchers[0].name} \u00b7 ${watchers[0].running ? 'running' : 'idle'}`
+                : `${watchers.length} agents`}
             </span>
           ) : null}
           {hovered && onNewNote ? (
-            <button
-              type="button"
-              className="tree-action-btn"
-              title="New note here"
-              onClick={(e) => { e.stopPropagation(); onNewNote(node.path) }}
-            >
+            <button type="button" className="tree-action-btn" title="New note here" onClick={(e) => { e.stopPropagation(); onNewNote(node.path) }}>
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
                 <path d="M6 2v8M2 6h8" />
               </svg>
             </button>
-          ) : !watcherNames.length ? (
-            <span className="tree-file-count">{fileCount}</span>
           ) : null}
         </span>
       </button>
@@ -171,24 +141,15 @@ function FolderNode({
             child.kind === 'dir' ? (
               <FolderNode
                 key={child.path || `${node.path}/${child.name}`}
-                node={child}
-                depth={depth + 1}
-                selectedPath={selectedPath}
-                recentActivity={recentActivity}
-                watchedFolders={watchedFolders}
-                expandedPaths={expandedPaths}
-                onToggle={onToggle}
-                onSelect={onSelect}
-                onNewNote={onNewNote}
+                node={child} depth={depth + 1} selectedPath={selectedPath}
+                recentActivity={recentActivity} watchedFolders={watchedFolders}
+                expandedPaths={expandedPaths} onToggle={onToggle} onSelect={onSelect} onNewNote={onNewNote}
               />
             ) : (
               <FileNode
                 key={child.path || `${node.path}/${child.name}`}
-                node={child}
-                depth={depth + 1}
-                selectedPath={selectedPath}
-                activity={recentActivity[child.path]}
-                onSelect={onSelect}
+                node={child} depth={depth + 1} selectedPath={selectedPath}
+                activity={recentActivity[child.path]} onSelect={onSelect}
               />
             ),
           )}
@@ -214,22 +175,18 @@ function FileNode({ node, depth, selectedPath, activity, onSelect }: FileNodePro
   const isActive = node.path === selectedPath
   const ref = useRef<HTMLButtonElement>(null)
 
-  // Scroll active file into view
   useEffect(() => {
-    if (isActive && ref.current) {
-      ref.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-    }
+    if (isActive && ref.current) ref.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [isActive])
 
   return (
     <button
       ref={ref}
       type="button"
-      className={`tree-file ${isActive ? 'tree-file-active' : ''}`.trim()}
+      className={`tree-file ${isActive ? 'tree-file-active' : ''}`}
       style={{ paddingLeft: depth * 16 + 6 }}
       onClick={() => onSelect(node.path)}
     >
-      {/* Indent guides */}
       {depth > 0 && (
         <div className="tree-indent-guides" style={{ width: depth * 16 }}>
           {Array.from({ length: depth }, (_, i) => (
@@ -243,7 +200,7 @@ function FileNode({ node, depth, selectedPath, activity, onSelect }: FileNodePro
         {activity ? (
           <>
             <span className="tree-file-time">{formatTreeTime(activity.createdAt)}</span>
-            <span className={`tree-indicator ${activityIndicatorClass(activity)}`.trim()} />
+            <span className={`tree-activity-dot ${activityDotClass(activity)}`} />
           </>
         ) : null}
       </span>
@@ -257,55 +214,35 @@ function FileNode({ node, depth, selectedPath, activity, onSelect }: FileNodePro
 
 export function FileTree({ nodes, selectedPath, recentActivity, watchedFolders, onSelect, onNewNote }: FileTreeProps) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
-    // Start with all folders expanded
     const paths = new Set<string>()
     function walk(list: TreeNode[]) {
-      for (const node of list) {
-        if (node.kind === 'dir') {
-          paths.add(node.path)
-          if (node.children) walk(node.children)
-        }
+      for (const n of list) {
+        if (n.kind === 'dir') { paths.add(n.path); if (n.children) walk(n.children) }
       }
     }
     walk(nodes)
     return paths
   })
 
-  // Ensure the selected file's parent folders are expanded
-  useEffect(() => {
-    if (!selectedPath) return
+  const effectiveExpandedPaths = useMemo(() => {
+    if (!selectedPath) return expandedPaths
+    const next = new Set(expandedPaths)
     const parts = selectedPath.split('/')
-    const parents: string[] = []
-    for (let i = 1; i < parts.length; i++) {
-      parents.push(parts.slice(0, i).join('/'))
+    for (let i = 1; i < parts.length; i += 1) {
+      next.add(parts.slice(0, i).join('/'))
     }
-    setExpandedPaths((prev) => {
-      let next = prev
-      for (const p of parents) {
-        if (!next.has(p)) {
-          if (next === prev) next = new Set(prev)
-          next.add(p)
-        }
-      }
-      return next
-    })
-  }, [selectedPath])
+    return next
+  }, [expandedPaths, selectedPath])
 
   const handleToggle = useCallback((path: string) => {
     setExpandedPaths((prev) => {
       const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
+      if (next.has(path)) next.delete(path); else next.add(path)
       return next
     })
   }, [])
 
-  const collapseAll = useCallback(() => {
-    setExpandedPaths(new Set())
-  }, [])
+  const collapseAll = useCallback(() => setExpandedPaths(new Set()), [])
 
   if (!nodes.length) {
     return (
@@ -332,26 +269,12 @@ export function FileTree({ nodes, selectedPath, recentActivity, watchedFolders, 
       {nodes.map((node) =>
         node.kind === 'dir' ? (
           <FolderNode
-            key={node.path || node.name}
-            node={node}
-            depth={0}
-            selectedPath={selectedPath}
-            recentActivity={recentActivity}
-            watchedFolders={watchedFolders}
-            expandedPaths={expandedPaths}
-            onToggle={handleToggle}
-            onSelect={onSelect}
-            onNewNote={onNewNote}
+            key={node.path || node.name} node={node} depth={0} selectedPath={selectedPath}
+            recentActivity={recentActivity} watchedFolders={watchedFolders}
+            expandedPaths={effectiveExpandedPaths} onToggle={handleToggle} onSelect={onSelect} onNewNote={onNewNote}
           />
         ) : (
-          <FileNode
-            key={node.path || node.name}
-            node={node}
-            depth={0}
-            selectedPath={selectedPath}
-            activity={recentActivity[node.path]}
-            onSelect={onSelect}
-          />
+          <FileNode key={node.path || node.name} node={node} depth={0} selectedPath={selectedPath} activity={recentActivity[node.path]} onSelect={onSelect} />
         ),
       )}
     </div>

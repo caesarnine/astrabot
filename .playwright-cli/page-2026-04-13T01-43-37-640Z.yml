@@ -1,0 +1,306 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - button "Toggle file explorer (Cmd+B)" [active] [ref=e6] [cursor=pointer]:
+        - img [ref=e7]
+      - generic [ref=e9]:
+        - generic [ref=e10]: A
+        - generic [ref=e11]: Astra
+    - generic [ref=e12]:
+      - button "New note" [ref=e13] [cursor=pointer]:
+        - img [ref=e14]
+      - generic [ref=e16]:
+        - generic [ref=e17]: binalkp91@gmail.com
+        - button "Logout" [ref=e56] [cursor=pointer]
+      - button "Toggle activity panel" [ref=e19] [cursor=pointer]:
+        - img [ref=e20]
+  - generic [ref=e23]:
+    - complementary:
+      - generic:
+        - heading "vault" [level=2]
+        - button "New note":
+          - img
+      - navigation:
+        - tree:
+          - generic:
+            - button "Collapse all":
+              - img
+          - treeitem "Inbox 3 agents" [expanded]:
+            - button "Inbox 3 agents":
+              - img
+              - img
+              - generic: Inbox
+              - generic:
+                - generic "Clarifier, Dynamic Clarifier, Inbox Librarian": 3 agents
+            - group:
+              - button "2026-04-05-inbox-heartbeat.md":
+                - img
+                - generic: 2026-04-05-inbox-heartbeat.md
+              - button "2026-04-06-inbox-heartbeat.md":
+                - img
+                - generic: 2026-04-06-inbox-heartbeat.md
+              - button "2026-04-07-inbox-heartbeat.md":
+                - img
+                - generic: 2026-04-07-inbox-heartbeat.md
+              - button "2026-04-08-inbox-heartbeat.md":
+                - img
+                - generic: 2026-04-08-inbox-heartbeat.md
+              - button "2026-04-09-inbox-heartbeat.md":
+                - img
+                - generic: 2026-04-09-inbox-heartbeat.md
+              - button "2026-04-10-inbox-heartbeat.md":
+                - img
+                - generic: 2026-04-10-inbox-heartbeat.md
+              - button "2026-04-11-inbox-heartbeat.md":
+                - img
+                - generic: 2026-04-11-inbox-heartbeat.md
+              - button "2026-04-12-inbox-heartbeat.md 1h":
+                - img
+                - generic: 2026-04-12-inbox-heartbeat.md
+                - generic:
+                  - generic: 1h
+              - button "attention-test.md 2h":
+                - img
+                - generic: attention-test.md
+                - generic:
+                  - generic: 2h
+              - button "dynamic-tool-test.md 2h":
+                - img
+                - generic: dynamic-tool-test.md
+                - generic:
+                  - generic: 2h
+              - button "This-is-a-test..md 3h":
+                - img
+                - generic: This-is-a-test..md
+                - generic:
+                  - generic: 3h
+          - treeitem "Web Watcher":
+            - button "Web Watcher":
+              - img
+              - img
+              - generic: Web
+              - generic:
+                - generic "Watcher": Watcher
+          - button "Getting-Started.md":
+            - img
+            - generic: Getting-Started.md
+    - main [ref=e24]:
+      - generic [ref=e26]:
+        - generic [ref=e58]:
+          - button "Inbox Research - Inbox heartbeat" [ref=e59] [cursor=pointer]
+          - button "Close tab" [ref=e60] [cursor=pointer]:
+            - img [ref=e61]
+        - generic [ref=e28]:
+          - button "Edit" [ref=e29] [cursor=pointer]
+          - button "Preview" [ref=e30] [cursor=pointer]
+          - button "Split" [ref=e31] [cursor=pointer]
+      - generic [ref=e32]:
+        - generic [ref=e63]:
+          - generic [ref=e64]:
+            - paragraph [ref=e65]: Inbox/2026-04-05-inbox-heartbeat.md
+            - heading "Inbox Research - Inbox heartbeat" [level=1] [ref=e66]
+          - generic [ref=e67]:
+            - button "Ask Agent" [ref=e68] [cursor=pointer]
+            - generic [ref=e69]: Ready
+            - button "Save" [ref=e70] [cursor=pointer]
+        - generic [ref=e71]:
+          - generic [ref=e72]: "Watching:"
+          - button "Clarifier" [ref=e73] [cursor=pointer]
+          - button "Dynamic Clarifier" [ref=e74] [cursor=pointer]
+          - button "Inbox Librarian" [ref=e75] [cursor=pointer]
+        - generic [ref=e78]:
+          - heading "Inbox Research - Inbox heartbeat" [level=1] [ref=e79]
+          - paragraph [ref=e80]:
+            - emphasis [ref=e81]: Agent
+            - text: ": Inbox Research"
+            - emphasis [ref=e82]: Job
+            - text: ": Inbox heartbeat"
+            - emphasis [ref=e83]: Scope
+            - text: ": Inbox"
+            - emphasis [ref=e84]: Updated
+            - text: ": 2026-04-05T23:56:27-04:00"
+          - heading "Digest" [level=2] [ref=e85]
+          - list [ref=e86]:
+            - listitem [ref=e87]: "Inbox has one non-heartbeat note: This-is-a-test..md."
+            - listitem [ref=e88]: It remains a placeholder test note with bullets A, B, and C.
+            - listitem [ref=e89]: No urgent action or extra cleanup was needed.
+          - heading "Notes reviewed" [level=2] [ref=e90]
+          - list [ref=e91]:
+            - listitem [ref=e92]: 2026-04-05-inbox-heartbeat.md
+            - listitem [ref=e93]: This-is-a-test..md
+          - heading "Follow-up" [level=2] [ref=e94]
+          - list [ref=e95]:
+            - listitem [ref=e96]: Replace This-is-a-test..md with a real capture or delete it if it was only for testing.
+    - complementary:
+      - generic:
+        - generic:
+          - generic:
+            - generic: Agents
+            - button "Manage agents":
+              - img
+          - generic:
+            - button "Clarifier":
+              - generic: Clarifier
+            - button "Dynamic Clarifier":
+              - generic: Dynamic Clarifier
+            - button "Inbox Librarian":
+              - generic: Inbox Librarian
+            - button "Watcher":
+              - generic: Watcher
+        - generic:
+          - generic:
+            - generic: Today
+          - generic:
+            - button "Watcher reported back 23m ago":
+              - generic:
+                - generic: Watcher reported back
+                - generic: 23m ago
+            - button "Watcher needs input 24m ago":
+              - generic:
+                - generic: Watcher needs input
+                - generic: 24m ago
+            - button "Inbox Librarian completed Inbox heartbeat 29m ago":
+              - generic:
+                - generic: Inbox Librarian completed Inbox heartbeat
+                - generic: 29m ago
+            - button "Inbox Librarian updated Inbox/2026-04-12-inbox-heartbeat.md 1h ago Inbox/2026-04-12-inbox-heartbeat.md":
+              - generic:
+                - generic: Inbox Librarian updated Inbox/2026-04-12-inbox-heartbeat.md
+                - generic: 1h ago
+              - paragraph: Inbox/2026-04-12-inbox-heartbeat.md
+            - button "Inbox Librarian did not finish 1h ago":
+              - generic:
+                - generic: Inbox Librarian did not finish
+                - generic: 1h ago
+            - button "Dynamic Clarifier updated Inbox/dynamic-tool-test.md 2h ago Inbox/dynamic-tool-test.md":
+              - generic:
+                - generic: Dynamic Clarifier updated Inbox/dynamic-tool-test.md
+                - generic: 2h ago
+              - paragraph: Inbox/dynamic-tool-test.md
+            - button "Dynamic Clarifier needs input 2h ago Inbox":
+              - generic:
+                - generic: Dynamic Clarifier needs input
+                - generic: 2h ago
+              - paragraph: Inbox
+            - button "Clarifier updated Inbox/attention-test.md 2h ago Inbox/attention-test.md":
+              - generic:
+                - generic: Clarifier updated Inbox/attention-test.md
+                - generic: 2h ago
+              - paragraph: Inbox/attention-test.md
+            - button "Clarifier needs input 2h ago":
+              - generic:
+                - generic: Clarifier needs input
+                - generic: 2h ago
+            - button "Inbox Librarian updated Inbox/2026-04-12-inbox-heartbeat.md 2h ago Inbox/2026-04-12-inbox-heartbeat.md":
+              - generic:
+                - generic: Inbox Librarian updated Inbox/2026-04-12-inbox-heartbeat.md
+                - generic: 2h ago
+              - paragraph: Inbox/2026-04-12-inbox-heartbeat.md
+            - button "Watcher completed Web watch 2h ago Web/new-note-2.md":
+              - generic:
+                - generic: Watcher completed Web watch
+                - generic: 2h ago
+              - paragraph: Web/new-note-2.md
+            - button "Watcher updated Web/new-note-2.md 2h ago Web/new-note-2.md":
+              - generic:
+                - generic: Watcher updated Web/new-note-2.md
+                - generic: 2h ago
+              - paragraph: Web/new-note-2.md
+            - button "Watcher completed Web watch 2h ago Web/new-note.md":
+              - generic:
+                - generic: Watcher completed Web watch
+                - generic: 2h ago
+              - paragraph: Web/new-note.md
+            - button "Watcher completed Web watch 3h ago Web/new-note.md":
+              - generic:
+                - generic: Watcher completed Web watch
+                - generic: 3h ago
+              - paragraph: Web/new-note.md
+            - button "Watcher completed Web watch 3h ago Web/new-note.md":
+              - generic:
+                - generic: Watcher completed Web watch
+                - generic: 3h ago
+              - paragraph: Web/new-note.md
+            - button "Watcher hit an error 3h ago":
+              - generic:
+                - generic: Watcher hit an error
+                - generic: 3h ago
+            - button "Watcher completed Web watch 3h ago Web/new-note.md":
+              - generic:
+                - generic: Watcher completed Web watch
+                - generic: 3h ago
+              - paragraph: Web/new-note.md
+            - button "Watcher completed Web watch 3h ago Web/new-note.md":
+              - generic:
+                - generic: Watcher completed Web watch
+                - generic: 3h ago
+              - paragraph: Web/new-note.md
+            - button "Watcher hit an error 3h ago":
+              - generic:
+                - generic: Watcher hit an error
+                - generic: 3h ago
+            - button "Watcher completed Web watch 3h ago Web/new-note.md":
+              - generic:
+                - generic: Watcher completed Web watch
+                - generic: 3h ago
+              - paragraph: Web/new-note.md
+            - button "Watcher did not finish 3h ago":
+              - generic:
+                - generic: Watcher did not finish
+                - generic: 3h ago
+            - button "Watcher completed Web watch 3h ago Web/new-note.md":
+              - generic:
+                - generic: Watcher completed Web watch
+                - generic: 3h ago
+              - paragraph: Web/new-note.md
+            - button "Watcher updated Web/new-note.md 3h ago Web/new-note.md":
+              - generic:
+                - generic: Watcher updated Web/new-note.md
+                - generic: 3h ago
+              - paragraph: Web/new-note.md
+            - button "Watcher hit an error 3h ago":
+              - generic:
+                - generic: Watcher hit an error
+                - generic: 3h ago
+            - button "Clarifier updated Inbox/attention-test.md 3h ago Inbox/attention-test.md":
+              - generic:
+                - generic: Clarifier updated Inbox/attention-test.md
+                - generic: 3h ago
+              - paragraph: Inbox/attention-test.md
+            - button "Clarifier needs input 3h ago":
+              - generic:
+                - generic: Clarifier needs input
+                - generic: 3h ago
+            - button "Clarifier reported back 3h ago":
+              - generic:
+                - generic: Clarifier reported back
+                - generic: 3h ago
+            - button "Inbox Librarian updated Inbox/This-is-a-test..md 3h ago Inbox/This-is-a-test..md":
+              - generic:
+                - generic: Inbox Librarian updated Inbox/This-is-a-test..md
+                - generic: 3h ago
+              - paragraph: Inbox/This-is-a-test..md
+            - button "Inbox Librarian reported back 3h ago":
+              - generic:
+                - generic: Inbox Librarian reported back
+                - generic: 3h ago
+        - generic:
+          - group:
+            - generic "Upcoming 2":
+              - generic: Upcoming
+              - generic: "2"
+        - generic:
+          - generic:
+            - textbox "@Agent ask something..."
+            - button:
+              - img
+          - button "Command palette ⌘⇧K":
+            - generic: Command palette
+            - generic: ⌘⇧K
+  - contentinfo [ref=e49]:
+    - generic [ref=e50]:
+      - generic [ref=e51]: Inbox/2026-04-05-inbox-heartbeat.md
+      - generic [ref=e52]: ·
+      - generic [ref=e53]: 72 words
+      - generic [ref=e54]: ·
+      - generic [ref=e55]: Ready

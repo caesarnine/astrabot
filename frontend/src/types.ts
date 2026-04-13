@@ -161,3 +161,53 @@ export interface EventEnvelope {
   timestamp: string
   payload: Record<string, unknown>
 }
+
+/* ---- Toast notifications ---- */
+
+export type ToastKind = 'success' | 'error' | 'attention' | 'info'
+
+export interface ToastItem {
+  id: string
+  kind: ToastKind
+  message: string
+  action?: { label: string; callback: () => void }
+  duration: number
+}
+
+/* ---- Bottom drawer ---- */
+
+export type DrawerTab = 'activity' | 'agents' | 'ask'
+
+/* ---- Agent form state (moved from App.tsx) ---- */
+
+export interface AgentFormState {
+  id: string
+  name: string
+  scopePath: string
+  outputDir: string
+  prompt: string
+  model: string
+  reasoningEffort: string
+  approvalPolicy: string
+  sandboxMode: string
+  enabled: boolean
+}
+
+export interface JobFormState {
+  id: string
+  name: string
+  prompt: string
+  triggerType: 'manual' | 'interval' | 'cron' | 'file_watch'
+  intervalMinutes: number
+  cronExpression: string
+  watchPath: string
+  watchDebounceSeconds: number
+  enabled: boolean
+}
+
+/* ---- Watched folder info ---- */
+
+export interface WatchedAgentInfo {
+  name: string
+  running: boolean
+}

@@ -168,9 +168,12 @@ export function MarkdownEditor({ value, onChange, editable = true, placeholder =
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
-  onChangeRef.current = onChange
   const externalUpdate = useRef(false)
   const readOnlyCompartment = useRef(new Compartment())
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
 
   // Create the editor once on mount
   useEffect(() => {
