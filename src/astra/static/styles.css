@@ -454,78 +454,6 @@ button {
   border-radius: 3px;
 }
 
-.file-tree details {
-  margin: 0;
-}
-
-.file-tree summary {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: var(--radius-xs);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  list-style: none;
-  transition: background var(--duration) var(--ease);
-  user-select: none;
-}
-
-.file-tree summary:hover {
-  background: var(--sidebar-hover);
-  color: var(--text);
-}
-
-.file-tree summary::-webkit-details-marker {
-  display: none;
-}
-
-.file-tree summary::before {
-  content: "";
-  display: inline-block;
-  width: 0;
-  height: 0;
-  border-left: 4px solid var(--text-tertiary);
-  border-top: 3px solid transparent;
-  border-bottom: 3px solid transparent;
-  margin-right: 2px;
-  transition: transform var(--duration) var(--ease);
-}
-
-.file-tree details[open] > summary::before {
-  transform: rotate(90deg);
-}
-
-.file-tree details > :not(summary) {
-  padding-left: 12px;
-}
-
-.file-tree button {
-  display: block;
-  width: 100%;
-  padding: 3px 8px 3px 14px;
-  border: none;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  font-size: 13px;
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--duration) var(--ease);
-}
-
-.file-tree button:hover {
-  background: var(--sidebar-hover);
-}
-
-.file-tree button.active {
-  background: var(--sidebar-active);
-  color: var(--accent);
-  font-weight: 500;
-}
-
 /* ===================================================================
    Editor main area
    =================================================================== */
@@ -535,6 +463,26 @@ button {
   flex-direction: column;
   min-height: 0;
   background: var(--surface);
+}
+
+/* Agent progress bar */
+
+.agent-progress-bar {
+  height: 2px;
+  flex-shrink: 0;
+  background: transparent;
+  transition: background 300ms var(--ease);
+}
+
+.agent-progress-active {
+  background: linear-gradient(90deg, var(--accent), rgba(27, 122, 104, 0.3), var(--accent));
+  background-size: 200% 100%;
+  animation: progress-shimmer 2s ease-in-out infinite;
+}
+
+@keyframes progress-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* Tab bar */
@@ -559,16 +507,23 @@ button {
   overflow-x: auto;
 }
 
+.tab-list::-webkit-scrollbar {
+  height: 0;
+}
+
 .note-tab {
-  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
   border: none;
   border-radius: var(--radius-xs);
   background: transparent;
   font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
-  cursor: pointer;
   transition: all var(--duration) var(--ease);
+  position: relative;
 }
 
 .note-tab:hover {
@@ -580,6 +535,60 @@ button {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 500;
+}
+
+.note-tab-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.tab-label {
+  padding: 5px 4px 5px 10px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tab-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin-right: 4px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: all var(--duration) var(--ease);
+  cursor: pointer;
+}
+
+.note-tab:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text);
+}
+
+.tab-unsaved-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .view-controls {
@@ -627,6 +636,165 @@ button {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  transition: opacity 150ms var(--ease);
+}
+
+.doc-surface.doc-loading {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Attention banner */
+
+.attention-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(160, 116, 32, 0.15);
+  background: linear-gradient(135deg, rgba(160, 116, 32, 0.07), rgba(160, 116, 32, 0.02));
+  flex-shrink: 0;
+  animation: banner-slide-in 250ms var(--ease);
+}
+
+@keyframes banner-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.attention-banner-icon {
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.attention-banner-body {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.attention-banner-body strong {
+  font-weight: 600;
+}
+
+.attention-banner-text {
+  margin-left: 6px;
+  color: var(--text-secondary);
+}
+
+.attention-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.attention-banner-actions input {
+  width: 180px;
+  padding: 5px 8px;
+  border: 1px solid rgba(160, 116, 32, 0.2);
+  border-radius: var(--radius-sm);
+  background: white;
+  font-size: 12px;
+}
+
+.attention-banner-actions input:focus {
+  outline: none;
+  border-color: var(--warning);
+  box-shadow: 0 0 0 2px rgba(160, 116, 32, 0.1);
+}
+
+.attention-banner-more {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* Welcome / empty state */
+
+.welcome-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.welcome-logo {
+  margin-bottom: 16px;
+}
+
+.brand-mark-lg {
+  width: 48px;
+  height: 48px;
+  font-size: 24px;
+  border-radius: var(--radius-md);
+}
+
+.welcome-title {
+  margin: 0;
+  font-family: "Georgia", "Iowan Old Style", serif;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.welcome-subtitle {
+  margin: 6px 0 0;
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.welcome-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+.welcome-agents {
+  margin-top: 32px;
+}
+
+.welcome-agents-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.welcome-agent-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.welcome-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .doc-header {
@@ -713,26 +881,18 @@ button {
   grid-template-columns: 1fr 1fr;
 }
 
-#editor-textarea {
+.cm-editor-wrap {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  padding: 20px 28px 60px;
-  border: none;
   border-top: 1px solid var(--border);
-  resize: none;
   background: var(--paper);
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Menlo", monospace;
-  font-size: 13.5px;
-  line-height: 1.7;
-  color: var(--text);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
-#editor-textarea:focus {
-  outline: none;
-}
-
-#editor-textarea::placeholder {
-  color: var(--text-tertiary);
+.cm-editor-wrap .cm-editor {
+  flex: 1;
+  min-height: 0;
 }
 
 .preview-pane {
@@ -901,111 +1061,6 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-tertiary);
-}
-
-/* Agent picker — horizontal chips */
-
-.agent-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.agent-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.5);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--duration) var(--ease);
-  white-space: nowrap;
-}
-
-.agent-chip:hover {
-  background: rgba(255, 255, 255, 0.8);
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-
-.agent-chip-active {
-  background: var(--accent-soft);
-  border-color: rgba(27, 122, 104, 0.25);
-  color: var(--accent);
-}
-
-.agent-chip-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.agent-chip-dot.dot-ready {
-  background: var(--accent);
-}
-
-.agent-chip-dot.dot-running {
-  background: var(--warning);
-  animation: pulse-dot 1.5s ease-in-out infinite;
-}
-
-.agent-chip-dot.dot-off {
-  background: var(--text-tertiary);
-  opacity: 0.5;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-/* Agent context — selected agent header */
-
-.agent-context {
-  background: rgba(255, 255, 255, 0.35);
-  border-radius: var(--radius-md);
-  padding: 10px !important;
-  border-bottom: 1px solid var(--border) !important;
-}
-
-.agent-context-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.agent-context-info {
-  min-width: 0;
-}
-
-.agent-context-name {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.agent-context-meta {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--text-tertiary);
-  word-break: break-all;
-}
-
-.agent-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-top: 5px;
 }
 
 /* Job / Run cards */
@@ -1454,7 +1509,10 @@ button {
     padding-top: 0;
   }
 
-  #editor-textarea,
+  .cm-editor-wrap .cm-content {
+    padding: 16px 18px 48px;
+  }
+
   .preview-pane {
     padding: 16px 18px 48px;
   }

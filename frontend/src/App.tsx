@@ -10,6 +10,7 @@ import {
 
 import { api } from './api'
 import { FileTree } from './components/FileTree'
+import { MarkdownEditor } from './components/MarkdownEditor'
 import { MarkdownPreview } from './components/MarkdownPreview'
 import type {
   ActivityBundle,
@@ -342,6 +343,7 @@ export default function App() {
   const [rightSidebarOpen, setRightSidebarOpen] = useState(() => currentViewportWidth() > COMPACT_BREAKPOINT)
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(() => currentViewportWidth() > MOBILE_BREAKPOINT)
   const [viewportWidth, setViewportWidth] = useState(() => currentViewportWidth())
+  const [loadingDocument, setLoadingDocument] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStateLabel, setSaveStateLabel] = useState('Idle')
@@ -739,6 +741,7 @@ export default function App() {
     if (!options.bypassConfirm && !confirmDiscardChanges()) {
       return
     }
+    setLoadingDocument(true)
     try {
       const document = await api<DocumentRecord>(`/api/documents/${encodePath(path)}`)
       startTransition(() => {
@@ -752,6 +755,8 @@ export default function App() {
       closeCompactPanels()
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not load document.')
+    } finally {
+      setLoadingDocument(false)
     }
   }
 
@@ -1026,6 +1031,23 @@ export default function App() {
     setSaveStateLabel('Unsaved')
   }
 
+  function closeTab(path: string) {
+    setOpenTabs((current) => {
+      const next = current.filter((tab) => tab.path !== path)
+      // If closing the active tab, switch to the most recent remaining tab
+      if (path === selectedDocumentPath && next.length > 0) {
+        void loadDocument(next[0].path, { bypassConfirm: true })
+      } else if (next.length === 0) {
+        setCurrentDocument(null)
+        setSelectedDocumentPath('')
+        setEditorValue('')
+        setDirty(false)
+        setSaveStateLabel('Idle')
+      }
+      return next
+    })
+  }
+
   function openActivityItem(item: ActivityRecord) {
     const path = item.primaryPath || item.paths[0]
     if (path) {
@@ -1181,22 +1203,48 @@ export default function App() {
               recentActivity={recentFileActivity}
               watchedFolders={watchedFolders}
               onSelect={(path) => void loadDocument(path)}
+              onNewNote={(parentPath) => {
+                setNewNoteParent(parentPath)
+                setNewNoteName('')
+                setNewNoteOpen(true)
+                window.setTimeout(() => newNoteNameRef.current?.focus(), 0)
+              }}
             />
           </nav>
         </aside>
 
         <main className="editor-main">
+          {/* Progress bar for active agent runs */}
+          <div className={`agent-progress-bar ${activeAgents.length > 0 ? 'agent-progress-active' : ''}`.trim()} />
+
           <div className="editor-tab-bar">
             <div className="tab-list">
               {openTabs.map((tab) => (
-                <button
+                <div
                   key={tab.path}
-                  type="button"
                   className={`note-tab ${tab.path === selectedDocumentPath ? 'note-tab-active' : ''}`.trim()}
-                  onClick={() => void loadDocument(tab.path)}
                 >
-                  {tab.title}
-                </button>
+                  {tab.path === selectedDocumentPath && dirty ? (
+                    <span className="tab-unsaved-dot" title="Unsaved changes" />
+                  ) : null}
+                  <button
+                    type="button"
+                    className="tab-label"
+                    onClick={() => void loadDocument(tab.path)}
+                  >
+                    {tab.title}
+                  </button>
+                  <button
+                    type="button"
+                    className="tab-close"
+                    title="Close tab"
+                    onClick={(e) => { e.stopPropagation(); closeTab(tab.path) }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                      <path d="M2.5 2.5l5 5M7.5 2.5l-5 5" />
+                    </svg>
+                  </button>
+                </div>
               ))}
             </div>
             <div className="view-controls">
@@ -1226,117 +1274,234 @@ export default function App() {
             </div>
           </div>
 
-          <section className="doc-surface">
-            <div className="doc-header">
-              <div className="doc-header-text">
-                <p className="doc-path">{currentDocument?.path || 'Choose a note from the vault.'}</p>
-                <h1 className="doc-title">{currentDocument?.title || 'Welcome'}</h1>
-              </div>
-              <div className="doc-actions">
-                <button type="button" className="btn-ghost btn-sm" onClick={() => setCommandPaletteOpen(true)}>
-                  Ask Agent
-                </button>
-                <span className={`state-pill ${currentDocumentStateKind()}`.trim()}>
-                  {currentDocument ? saveStateLabel : 'Idle'}
-                </span>
-                <button
-                  type="button"
-                  className="btn-primary btn-sm"
-                  disabled={!currentDocument?.editable}
-                  onClick={() => void saveCurrentDocument({ autosave: false })}
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-
-            {currentFileActivity && !dismissedActivityIds.includes(currentFileActivity.activityId) ? (
-              <div className="doc-activity-banner">
-                <div>
-                  <strong>{currentFileActivity.agentName || 'Agent'}</strong> touched this {formatDate(currentFileActivity.createdAt)}
-                  <div className="doc-activity-copy">{currentFileActivity.title}</div>
+          <section className={`doc-surface ${loadingDocument ? 'doc-loading' : ''}`.trim()}>
+            {/* Attention banner — slides in when agent needs input */}
+            {visibleAttention.length > 0 ? (
+              <div className="attention-banner">
+                <div className="attention-banner-icon">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                    <path d="M8 5v3M8 10.5v.5" />
+                    <circle cx="8" cy="8" r="6.5" />
+                  </svg>
                 </div>
-                <button
-                  type="button"
-                  className="icon-btn-sm"
-                  onClick={() => setDismissedActivityIds((current) => [...current, currentFileActivity.activityId])}
-                >
-                  ×
-                </button>
-              </div>
-            ) : null}
-
-            {watchingAgents.length > 0 ? (
-              <div className="watching-strip">
-                <span className="watching-label">Agents watching:</span>
-                {watchingAgents.map((agent) => (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    className="watching-chip"
-                    onClick={() => {
-                      setCommandInput(`@${agent.name} `)
-                      setCommandPaletteOpen(true)
+                <div className="attention-banner-body">
+                  <strong>{visibleAttention[0].title}</strong>
+                  {visibleAttention[0].body ? <span className="attention-banner-text">{visibleAttention[0].body}</span> : null}
+                </div>
+                <div className="attention-banner-actions">
+                  <input
+                    type="text"
+                    placeholder="Reply..."
+                    value={replyDrafts[visibleAttention[0].id] ?? ''}
+                    onChange={(event) => setReplyDrafts((current) => ({ ...current, [visibleAttention[0].id]: event.target.value }))}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        void replyToAttention(visibleAttention[0].id)
+                      }
                     }}
-                  >
-                    {agent.name}
-                  </button>
-                ))}
+                  />
+                  <button type="button" className="btn-primary btn-sm" onClick={() => void replyToAttention(visibleAttention[0].id)}>Reply</button>
+                  <button type="button" className="btn-ghost btn-sm" onClick={() => void dismissAttention(visibleAttention[0].id)}>Dismiss</button>
+                </div>
+                {visibleAttention.length > 1 ? (
+                  <span className="attention-banner-more">+{visibleAttention.length - 1} more</span>
+                ) : null}
               </div>
             ) : null}
 
-            <div className={`doc-content doc-content-${documentViewMode}`.trim()}>
-              <textarea
-                id="editor-textarea"
-                spellCheck={false}
-                className={documentViewMode === 'preview' ? 'hidden' : undefined}
-                disabled={!currentDocument?.editable}
-                placeholder="Select a note to start writing."
-                value={editorValue}
-                onChange={(event) => updateEditor(event.target.value)}
-              />
-              <div className={`preview-pane ${documentViewMode === 'edit' ? 'hidden' : ''}`.trim()}>
-                <MarkdownPreview value={editorValue} />
+            {currentDocument ? (
+              <>
+                <div className="doc-header">
+                  <div className="doc-header-text">
+                    <p className="doc-path">{currentDocument.path}</p>
+                    <h1 className="doc-title">{currentDocument.title || currentDocument.path}</h1>
+                  </div>
+                  <div className="doc-actions">
+                    <button type="button" className="btn-ghost btn-sm" onClick={() => setCommandPaletteOpen(true)}>
+                      Ask Agent
+                    </button>
+                    <span className={`state-pill ${currentDocumentStateKind()}`.trim()}>
+                      {saveStateLabel}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm"
+                      disabled={!currentDocument.editable}
+                      onClick={() => void saveCurrentDocument({ autosave: false })}
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+
+                {currentFileActivity && !dismissedActivityIds.includes(currentFileActivity.activityId) ? (
+                  <div className="doc-activity-banner">
+                    <div>
+                      <strong>{currentFileActivity.agentName || 'Agent'}</strong> touched this {formatDate(currentFileActivity.createdAt)}
+                      <div className="doc-activity-copy">{currentFileActivity.title}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="icon-btn-sm"
+                      onClick={() => setDismissedActivityIds((current) => [...current, currentFileActivity.activityId])}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : null}
+
+                {watchingAgents.length > 0 ? (
+                  <div className="watching-strip">
+                    <span className="watching-label">Watching:</span>
+                    {watchingAgents.map((agent) => (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        className={`watching-chip ${agent.isRunning ? 'watching-chip-active' : ''}`.trim()}
+                        onClick={() => {
+                          setCommandInput(`@${agent.name} `)
+                          setCommandPaletteOpen(true)
+                        }}
+                      >
+                        {agent.isRunning ? <span className="watching-chip-dot" /> : null}
+                        {agent.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className={`doc-content doc-content-${documentViewMode}`.trim()}>
+                  {documentViewMode !== 'preview' ? (
+                    <MarkdownEditor
+                      value={editorValue}
+                      onChange={updateEditor}
+                      editable={currentDocument.editable}
+                      placeholder="Start writing..."
+                    />
+                  ) : null}
+                  {documentViewMode !== 'edit' ? (
+                    <div className="preview-pane">
+                      <MarkdownPreview value={editorValue} />
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              /* Welcome / empty state */
+              <div className="welcome-view">
+                <div className="welcome-logo">
+                  <span className="brand-mark brand-mark-lg">A</span>
+                </div>
+                <h1 className="welcome-title">{appName}</h1>
+                <p className="welcome-subtitle">Your knowledge workspace with ambient agents.</p>
+                <div className="welcome-actions">
+                  <button type="button" className="btn-primary" onClick={openNewNoteComposer}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M8 3v10M3 8h10" />
+                    </svg>
+                    New Note
+                  </button>
+                  <button type="button" className="btn-ghost" onClick={() => setCommandPaletteOpen(true)}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M2 8h12M10 4l4 4-4 4" />
+                    </svg>
+                    Ask an Agent
+                  </button>
+                  <button type="button" className="btn-ghost" onClick={() => searchInputRef.current?.focus()}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <circle cx="6.5" cy="6.5" r="4.5" />
+                      <path d="M10 10l4 4" />
+                    </svg>
+                    Search
+                  </button>
+                </div>
+                {agents.length > 0 ? (
+                  <div className="welcome-agents">
+                    <p className="welcome-agents-label">{enabledAgents.length} agent{enabledAgents.length !== 1 ? 's' : ''} ready</p>
+                    <div className="welcome-agent-row">
+                      {agents.slice(0, 4).map((agent) => (
+                        <span key={agent.id} className="welcome-agent-chip">
+                          <span className={`agent-status-dot ${agent.isRunning ? 'dot-running' : agent.enabled ? 'dot-ready' : 'dot-off'}`.trim()} />
+                          {agent.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            </div>
+            )}
           </section>
         </main>
 
         <aside className={`sidebar-right ${rightSidebarOpen ? '' : 'right-sidebar-collapsed'}`.trim()}>
           <div className="sidebar-scroll">
-            <div className="panel-section activity-header">
-              <div className="section-head">
-                <span className="section-label">Activity</span>
-                <button type="button" className="icon-btn-sm" onClick={() => setAgentModalOpen(true)}>
+            {/* Agent status strip */}
+            <div className="agent-strip">
+              <div className="agent-strip-head">
+                <span className="section-label">Agents</span>
+                <button type="button" className="icon-btn-sm" title="Manage agents" onClick={() => setAgentModalOpen(true)}>
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                     <circle cx="8" cy="8" r="2.2" />
                     <path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5L3.4 3.4" />
                   </svg>
                 </button>
               </div>
+              {agents.length === 0 ? (
+                <div className="agent-strip-empty">
+                  <p>No agents yet.</p>
+                  <button type="button" className="btn-ghost btn-sm" onClick={() => setAgentModalOpen(true)}>Create one</button>
+                </div>
+              ) : (
+                <div className="agent-chip-row">
+                  {agents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      className={`agent-status-chip ${agent.isRunning ? 'agent-status-running' : agent.enabled ? 'agent-status-ready' : 'agent-status-off'}`.trim()}
+                      title={`${agent.name} — ${agent.isRunning ? 'running' : agent.enabled ? 'idle' : 'disabled'}`}
+                      onClick={() => {
+                        setCommandInput(`@${agent.name} `)
+                        setCommandPaletteOpen(true)
+                      }}
+                    >
+                      <span className={`agent-status-dot ${agent.isRunning ? 'dot-running' : agent.enabled ? 'dot-ready' : 'dot-off'}`.trim()} />
+                      <span className="agent-status-name">{agent.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
+            {/* Attention items */}
             {visibleAttention.length > 0 ? (
               <div className="panel-section">
                 <div className="section-head">
-                  <span className="section-label">Attention</span>
+                  <span className="section-label">
+                    Needs Attention
+                    <span className="attention-count">{visibleAttention.length}</span>
+                  </span>
                 </div>
                 <div className="feed-list">
                   {visibleAttention.map((item) => (
                     <div key={item.id} className="feed-card feed-card-attention">
                       <div className="feed-title-row">
-                        <span className={`feed-dot feed-dot-${activityIcon(item)}`.trim()} />
+                        <span className="feed-dot feed-dot-attention" />
                         <span className="card-title">{item.title}</span>
                         <span className={`status-pill ${statusClass(item.status)}`.trim()}>{item.status}</span>
                       </div>
                       <p className="card-meta">{formatDate(item.createdAt)}</p>
-                      <p className="feed-body">{item.body}</p>
+                      {item.body ? <p className="feed-body">{item.body}</p> : null}
                       <div className="attention-actions">
                         <input
                           type="text"
                           placeholder="Reply..."
                           value={replyDrafts[item.id] ?? ''}
                           onChange={(event) => setReplyDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              void replyToAttention(item.id)
+                            }
+                          }}
                         />
                         <button type="button" className="btn-primary btn-sm" onClick={() => void replyToAttention(item.id)}>
                           Reply
@@ -1351,13 +1516,21 @@ export default function App() {
               </div>
             ) : null}
 
+            {/* Today's activity */}
             <div className="panel-section">
               <div className="section-head">
                 <span className="section-label">Today</span>
               </div>
               <div className="feed-list">
                 {activity.today.length === 0 ? (
-                  <div className="empty-state">No activity yet.</div>
+                  <div className="empty-state-card">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.3">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 7v5l3 3" />
+                    </svg>
+                    <p>No activity yet today.</p>
+                    <p className="empty-state-hint">Ask an agent something to get started.</p>
+                  </div>
                 ) : (
                   activity.today.map((item) => (
                     <button key={item.id} type="button" className="feed-card" onClick={() => openActivityItem(item)}>
@@ -1366,43 +1539,44 @@ export default function App() {
                         <span className="card-title">{item.title}</span>
                         <span className="card-meta">{formatDate(item.createdAt)}</span>
                       </div>
-                      {item.primaryPath ? <p className="card-meta">{item.primaryPath}</p> : null}
-                      <p className="feed-body">{item.body || 'No details.'}</p>
+                      {item.primaryPath ? <p className="card-meta feed-path">{item.primaryPath}</p> : null}
                     </button>
                   ))
                 )}
               </div>
             </div>
 
-            <div className="panel-section">
-              <div className="section-head">
-                <span className="section-label">Upcoming</span>
-              </div>
-              <div className="feed-list">
-                {activity.upcoming.length === 0 ? (
-                  <div className="empty-state">No upcoming jobs.</div>
-                ) : (
-                  activity.upcoming.map((item) => (
-                    <div key={item.id} className="feed-card feed-card-upcoming">
-                      <div className="feed-title-row">
-                        <span className={`feed-dot feed-dot-${activityIcon(item)}`.trim()} />
-                        <span className="card-title">{item.agentName}</span>
-                        <span className="card-meta">{item.nextRunAt ? formatDate(item.nextRunAt) : 'Watching'}</span>
+            {/* Upcoming — collapsible */}
+            {activity.upcoming.length > 0 ? (
+              <div className="panel-section">
+                <details className="upcoming-details">
+                  <summary className="section-head section-head-toggle">
+                    <span className="section-label">Upcoming</span>
+                    <span className="upcoming-count">{activity.upcoming.length}</span>
+                  </summary>
+                  <div className="feed-list">
+                    {activity.upcoming.map((item) => (
+                      <div key={item.id} className="feed-card feed-card-upcoming">
+                        <div className="feed-title-row">
+                          <span className="feed-dot feed-dot-ring" />
+                          <span className="card-title">{item.agentName}</span>
+                          <span className="card-meta">{item.nextRunAt ? formatDate(item.nextRunAt) : 'Watching'}</span>
+                        </div>
+                        <p className="card-meta">{item.jobName} &middot; {
+                          item.triggerType === 'file_watch'
+                            ? `watching ${item.watchPath || 'scope'}`
+                            : item.nextRunAt
+                              ? `next ${formatDate(item.nextRunAt)}`
+                              : 'scheduled'
+                        }</p>
                       </div>
-                      <p className="card-meta">{item.jobName}</p>
-                      <p className="feed-body">
-                        {item.triggerType === 'file_watch'
-                          ? `Watching ${item.watchPath || 'scope'} for changes`
-                          : item.nextRunAt
-                            ? `Next run ${formatDate(item.nextRunAt)}`
-                            : 'Scheduled'}
-                      </p>
-                    </div>
-                  ))
-                )}
+                    ))}
+                  </div>
+                </details>
               </div>
-            </div>
+            ) : null}
 
+            {/* Sticky ask panel */}
             <div className="panel-section ask-panel">
               <form
                 className="quick-run-form"
@@ -1415,17 +1589,19 @@ export default function App() {
                 <input
                   type="text"
                   name="sidebar-ask"
-                  placeholder="Ask an agent..."
+                  placeholder="@Agent ask something..."
                   value={sidebarAskInput}
                   onChange={(event) => setSidebarAskInput(event.target.value)}
                 />
                 <button type="submit" className="btn-primary btn-sm">
-                  Send
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M2 8h12M10 4l4 4-4 4" />
+                  </svg>
                 </button>
               </form>
               <button type="button" className="ask-shortcut" onClick={() => setCommandPaletteOpen(true)}>
                 <span>Command palette</span>
-                <kbd>⌘⇧K</kbd>
+                <kbd>&#8984;&#8679;K</kbd>
               </button>
             </div>
           </div>
