@@ -28,11 +28,13 @@ interface AgentSlideOutProps {
   onAgentFormChange: (form: AgentFormState) => void
   onAgentSave: (e: FormEvent<HTMLFormElement>) => void
   onAgentReset: () => void
+  onAgentDelete: (agentId: string) => void
   jobForm: JobFormState
   onJobFormChange: (form: JobFormState) => void
   onJobSave: (e: FormEvent<HTMLFormElement>) => void
   onJobFill: (job: JobRecord) => void
   onJobRun: (jobId: string) => void
+  onJobDelete: (jobId: string) => void
   jobs: JobRecord[]
   runs: RunRecord[]
   selectedRunId: string | null
@@ -80,11 +82,13 @@ export function AgentSlideOut({
   onAgentFormChange,
   onAgentSave,
   onAgentReset,
+  onAgentDelete,
   jobForm,
   onJobFormChange,
   onJobSave,
   onJobFill,
   onJobRun,
+  onJobDelete,
   jobs,
   runs,
   selectedRunId,
@@ -169,6 +173,7 @@ export function AgentSlideOut({
                   <div className="form-row" style={{ marginTop: 4 }}>
                     <button type="button" className="btn-ghost btn-sm" onClick={() => onJobFill(job)}>Edit</button>
                     <button type="button" className="btn-primary btn-sm" onClick={() => onJobRun(job.id)}>Run</button>
+                    <button type="button" className="btn-danger btn-sm" onClick={() => onJobDelete(job.id)}>Delete</button>
                   </div>
                 </div>
               ))}
@@ -308,6 +313,7 @@ export function AgentSlideOut({
                 {isSelected && !isEditing ? (
                   <div className="slideout-card-actions">
                     <button type="button" className="btn-ghost btn-sm" onClick={() => setEditingAgent(true)}>Edit</button>
+                    <button type="button" className="btn-danger btn-sm" onClick={() => onAgentDelete(agent.id)}>Delete</button>
                   </div>
                 ) : null}
 

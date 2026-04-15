@@ -171,6 +171,72 @@ class VaultManager:
             self.sync_index(force=True)
         return normalized
 
+    def delete_document(self, rel_path: str) -> None:
+        path = self.resolve_path(rel_path)
+        if not path.exists():
+            raise FileNotFoundError(f"{rel_path} does not exist.")
+        if path.is_dir():
+            import shutil
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        # Remove empty parent dirs up to vault root
+        parent = path.parent
+        while parent != self._vault_path and parent.exists() and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
+        self.sync_index(force=True)
+
+    def rename_document(self, rel_path: str, new_name: str) -> VaultDocument:
+        path = self.resolve_path(rel_path)
+        if not path.exists():
+            raise FileNotFoundError(f"{rel_path} does not exist.")
+        safe_name = new_name.strip()
+        if not safe_name:
+            raise ValueError("Name cannot be empty.")
+        if '/' in safe_name or '\\' in safe_name:
+            raise ValueError("Name cannot contain path separators.")
+        new_path = path.parent / safe_name
+        if new_path.exists():
+            raise ValueError(f"{safe_name} already exists in that folder.")
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        path.rename(new_path)
+        self.sync_index(force=True)
+        return self.read_document(self.to_rel_path(new_path))
+
+    def move_document(self, rel_path: str, new_parent: str) -> VaultDocument:
+        path = self.resolve_path(rel_path)
+        if not path.exists():
+            raise FileNotFoundError(f"{rel_path} does not exist.")
+        dest_dir = self.resolve_dir(new_parent) if new_parent else self._vault_path
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        new_path = dest_dir / path.name
+        if new_path.exists():
+            raise ValueError(f"{path.name} already exists in {new_parent or 'vault root'}.")
+        path.rename(new_path)
+        # Remove empty parent dirs up to vault root
+        old_parent = path.parent
+        while old_parent != self._vault_path and old_parent.exists() and not any(old_parent.iterdir()):
+            old_parent.rmdir()
+            old_parent = old_parent.parent
+        self.sync_index(force=True)
+        return self.read_document(self.to_rel_path(new_path))
+
+    def create_folder(self, parent: str, name: str) -> str:
+        safe_name = name.strip()
+        if not safe_name:
+            raise ValueError("Folder name cannot be empty.")
+        if '/' in safe_name or '\\' in safe_name:
+            raise ValueError("Folder name cannot contain path separators.")
+        safe_parent = self._normalize_rel_path(parent)
+        rel_path = safe_name if not safe_parent else f"{safe_parent}/{safe_name}"
+        path = self.resolve_path(rel_path)
+        if path.exists():
+            raise ValueError(f"{rel_path} already exists.")
+        path.mkdir(parents=True, exist_ok=True)
+        self.sync_index(force=True)
+        return self._normalize_rel_path(rel_path)
+
     def search(self, query: str) -> list[dict[str, str | None]]:
         self.sync_index()
         return [

@@ -9,6 +9,7 @@ import {
 } from 'react'
 
 import { api } from './api'
+import { useDialog } from './components/AppDialog'
 import { FileTree } from './components/FileTree'
 import { MarkdownEditor } from './components/MarkdownEditor'
 import { MarkdownPreview } from './components/MarkdownPreview'
@@ -259,6 +260,9 @@ export default function App() {
   const [askInput, setAskInput] = useState('')
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
   const [dismissedActivityIds, setDismissedActivityIds] = useState<string[]>([])
+
+  /* ---- Dialog ---- */
+  const dialog = useDialog()
 
   /* ---- Refs ---- */
   const newNoteNameRef = useRef<HTMLInputElement | null>(null)
@@ -532,9 +536,14 @@ export default function App() {
     return parts.join('/') || defaults?.inboxDir || ''
   }
 
-  function confirmDiscardChanges() {
+  async function confirmDiscardChanges() {
     if (!dirty) return true
-    return window.confirm('Discard unsaved changes?')
+    return dialog.confirm({
+      title: 'Unsaved changes',
+      message: 'You have unsaved changes. Discard them?',
+      confirmLabel: 'Discard',
+      danger: true,
+    })
   }
 
   async function refreshTree() {
@@ -564,7 +573,7 @@ export default function App() {
   }
 
   async function loadDocument(path: string, options: { bypassConfirm: boolean } = { bypassConfirm: false }) {
-    if (!options.bypassConfirm && !confirmDiscardChanges()) return
+    if (!options.bypassConfirm && !(await confirmDiscardChanges())) return
     setLoadingDocument(true)
     try {
       const doc = await api<DocumentRecord>(`/api/documents/${encodePath(path)}`)
@@ -662,6 +671,126 @@ export default function App() {
       addToast('success', `Created ${result.path}`)
     } catch (error) {
       addToast('error', error instanceof Error ? error.message : 'Could not create note.')
+    }
+  }
+
+  async function deleteDocument(path: string) {
+    const name = path.split('/').pop() || path
+    const confirmed = await dialog.confirm({
+      title: 'Delete',
+      message: `Delete "${name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!confirmed) return
+    try {
+      await api<{ status: string }>(`/api/documents/${encodePath(path)}`, { method: 'DELETE' })
+      // If we just deleted the current doc, clear it
+      if (selectedDocumentPath === path) {
+        closeTab(path)
+      } else {
+        setOpenTabs((current) => current.filter((t) => t.path !== path))
+      }
+      await refreshTree()
+      addToast('success', `Deleted ${name}`)
+    } catch (error) {
+      addToast('error', error instanceof Error ? error.message : 'Could not delete.')
+    }
+  }
+
+  async function renameDocument(path: string, kind: 'file' | 'dir') {
+    const oldName = path.split('/').pop() || path
+    const newName = await dialog.prompt({
+      title: 'Rename',
+      message: `Enter a new name for "${oldName}":`,
+      inputValue: oldName,
+      confirmLabel: 'Rename',
+    })
+    if (!newName || newName === oldName) return
+    try {
+      const result = await api<DocumentRecord>(`/api/documents/${encodePath(path)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: newName }),
+      })
+      await refreshTree()
+      // If we renamed the current doc, navigate to the new path
+      if (selectedDocumentPath === path && kind === 'file') {
+        setOpenTabs((current) =>
+          current.map((t) => t.path === path ? { path: result.path, title: result.title || result.path } : t),
+        )
+        setSelectedDocumentPath(result.path)
+        setCurrentDocument(result)
+      }
+      addToast('success', `Renamed to ${newName}`)
+    } catch (error) {
+      addToast('error', error instanceof Error ? error.message : 'Could not rename.')
+    }
+  }
+
+  async function createFolder(parentPath: string) {
+    const name = await dialog.prompt({
+      title: 'New folder',
+      message: parentPath ? `Create a folder inside "${parentPath}":` : 'Create a folder in the vault root:',
+      inputValue: '',
+      inputPlaceholder: 'Folder name',
+      confirmLabel: 'Create',
+    })
+    if (!name) return
+    try {
+      await api<{ path: string }>('/api/folders', {
+        method: 'POST',
+        body: JSON.stringify({ parent: parentPath, name }),
+      })
+      await refreshTree()
+      addToast('success', `Created folder ${name}`)
+    } catch (error) {
+      addToast('error', error instanceof Error ? error.message : 'Could not create folder.')
+    }
+  }
+
+  async function deleteAgent(agentId: string) {
+    const agent = agents.find((a) => a.id === agentId)
+    const confirmed = await dialog.confirm({
+      title: 'Delete agent',
+      message: `Delete "${agent?.name || agentId}"? This will also delete its jobs and run history.`,
+      confirmLabel: 'Delete agent',
+      danger: true,
+    })
+    if (!confirmed) return
+    try {
+      await api<{ status: string }>(`/api/agents/${agentId}`, { method: 'DELETE' })
+      await refreshAgents()
+      // If we deleted the selected agent, reset
+      if (selectedAgentId === agentId) {
+        setSelectedAgentId(null)
+        setAgentForm(blankAgentForm(defaults))
+        setJobs([])
+        setRuns([])
+        setSelectedRunId(null)
+      }
+      addToast('success', `Deleted agent ${agent?.name || agentId}`)
+    } catch (error) {
+      addToast('error', error instanceof Error ? error.message : 'Could not delete agent.')
+    }
+  }
+
+  async function deleteJob(jobId: string) {
+    const job = jobs.find((j) => j.id === jobId)
+    const confirmed = await dialog.confirm({
+      title: 'Delete job',
+      message: `Delete "${job?.name || jobId}"?`,
+      confirmLabel: 'Delete job',
+      danger: true,
+    })
+    if (!confirmed) return
+    try {
+      await api<{ status: string }>(`/api/jobs/${jobId}`, { method: 'DELETE' })
+      if (selectedAgentId) await loadAgentDetails(selectedAgentId)
+      await Promise.all([refreshAgents(), refreshActivityBundle()])
+      setJobForm(blankJobForm())
+      addToast('success', `Deleted job ${job?.name || jobId}`)
+    } catch (error) {
+      addToast('error', error instanceof Error ? error.message : 'Could not delete job.')
     }
   }
 
@@ -886,6 +1015,9 @@ export default function App() {
                 setNewNoteOpen(true)
                 window.setTimeout(() => newNoteNameRef.current?.focus(), 0)
               }}
+              onNewFolder={(parentPath) => void createFolder(parentPath)}
+              onDelete={(path) => void deleteDocument(path)}
+              onRename={(path, kind) => void renameDocument(path, kind)}
             />
           </nav>
         </aside>
@@ -1044,11 +1176,13 @@ export default function App() {
           setSelectedAgentId(null)
           setSelectedRunId(null)
         }}
+        onAgentDelete={(id) => void deleteAgent(id)}
         jobForm={jobForm}
         onJobFormChange={setJobForm}
         onJobSave={(e) => void saveJob(e)}
         onJobFill={(job) => setJobForm(jobToForm(job))}
         onJobRun={(jobId) => void runJob(jobId)}
+        onJobDelete={(jobId) => void deleteJob(jobId)}
         jobs={jobs}
         runs={runs}
         selectedRunId={selectedRunId}
@@ -1058,6 +1192,9 @@ export default function App() {
 
       {/* ---- Toasts ---- */}
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
+      {/* ---- Dialog ---- */}
+      {dialog.dialogElement}
     </div>
   )
 }

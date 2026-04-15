@@ -276,6 +276,57 @@
   background: var(--warning);
 }
 
+/* Context menu */
+
+.tree-context-menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  box-shadow: var(--shadow-md);
+  animation: context-menu-in 100ms var(--ease);
+}
+
+@keyframes context-menu-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.tree-context-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--duration) var(--ease);
+}
+
+.tree-context-menu button:hover {
+  background: var(--surface-hover);
+}
+
+.tree-context-danger {
+  color: var(--danger) !important;
+}
+
+.tree-context-danger:hover {
+  background: rgba(181, 67, 58, 0.08) !important;
+}
+
+.tree-context-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+
 /* Empty state */
 
 .tree-empty-state {

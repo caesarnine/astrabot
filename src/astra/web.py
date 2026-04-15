@@ -75,6 +75,19 @@ class AskBody(BaseModel):
     context_path: str | None = None
 
 
+class DocumentRenameBody(BaseModel):
+    name: str
+
+
+class DocumentMoveBody(BaseModel):
+    new_parent: str = ""
+
+
+class FolderCreateBody(BaseModel):
+    parent: str = ""
+    name: str
+
+
 class AttentionReplyBody(BaseModel):
     text: str
 
@@ -211,6 +224,58 @@ def create_web_app(settings: Settings) -> FastAPI:
             "content": document.content,
         }
 
+    @app.delete("/api/documents/{doc_path:path}")
+    async def delete_document(request: Request, doc_path: str) -> dict[str, object]:
+        services = _services(request)
+        try:
+            services.vault.delete_document(doc_path)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await services.events.publish("vault.changed", {"paths": [doc_path]})
+        return {"status": "ok"}
+
+    @app.patch("/api/documents/{doc_path:path}")
+    async def rename_document(request: Request, doc_path: str, body: DocumentRenameBody) -> dict[str, object]:
+        services = _services(request)
+        try:
+            document = services.vault.rename_document(doc_path, body.name)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await services.events.publish("vault.changed", {"paths": [doc_path, document.path]})
+        return {
+            "path": document.path,
+            "kind": document.kind,
+            "title": document.title,
+            "editable": document.editable,
+            "content": document.content,
+        }
+
+    @app.post("/api/documents/move")
+    async def move_document(request: Request, body: DocumentMoveBody, path: str = Query()) -> dict[str, object]:
+        services = _services(request)
+        try:
+            document = services.vault.move_document(path, body.new_parent)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await services.events.publish("vault.changed", {"paths": [path, document.path]})
+        return {
+            "path": document.path,
+            "kind": document.kind,
+            "title": document.title,
+            "editable": document.editable,
+            "content": document.content,
+        }
+
+    @app.post("/api/folders")
+    async def create_folder(request: Request, body: FolderCreateBody) -> dict[str, object]:
+        services = _services(request)
+        try:
+            rel_path = services.vault.create_folder(body.parent, body.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await services.events.publish("vault.changed", {"paths": [rel_path]})
+        return {"path": rel_path}
+
     @app.get("/api/search")
     async def search(request: Request, q: str = Query(default="")) -> dict[str, object]:
         services = _services(request)
@@ -297,6 +362,19 @@ def create_web_app(settings: Settings) -> FastAPI:
         await services.events.publish("agents.changed", {"agentId": agent.id})
         return {"agent": _serialize_agent(agent, services.runtime.is_agent_running(agent.id))}
 
+    @app.delete("/api/agents/{agent_id}")
+    async def delete_agent(request: Request, agent_id: str) -> dict[str, object]:
+        services = _services(request)
+        try:
+            services.store.get_agent(agent_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Agent not found.") from exc
+        if services.runtime.is_agent_running(agent_id):
+            raise HTTPException(status_code=409, detail="Cannot delete a running agent.")
+        services.store.delete_agent(agent_id)
+        await services.events.publish("agents.changed", {"agentId": agent_id})
+        return {"status": "ok"}
+
     @app.post("/api/agents/{agent_id}/runs")
     async def quick_run(request: Request, agent_id: str, body: QuickRunBody) -> dict[str, object]:
         services = _services(request)
@@ -366,6 +444,17 @@ def create_web_app(settings: Settings) -> FastAPI:
         services.scheduler.sync_watch_job(job, agent)
         await services.events.publish("jobs.changed", {"agentId": existing.agent_id, "jobId": job.id})
         return {"job": _serialize_job(job)}
+
+    @app.delete("/api/jobs/{job_id}")
+    async def delete_job(request: Request, job_id: str) -> dict[str, object]:
+        services = _services(request)
+        try:
+            job = services.store.get_job(job_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Job not found.") from exc
+        services.store.delete_job(job_id)
+        await services.events.publish("jobs.changed", {"agentId": job.agent_id, "jobId": job_id})
+        return {"status": "ok"}
 
     @app.post("/api/jobs/{job_id}/run")
     async def run_job(request: Request, job_id: str) -> dict[str, object]:

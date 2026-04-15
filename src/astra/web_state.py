@@ -477,6 +477,13 @@ class WebStateStore:
         self._conn.commit()
         return self.get_agent(agent_id)
 
+    def delete_agent(self, agent_id: str) -> None:
+        self._conn.execute("delete from activity_items where agent_id = ?", (agent_id,))
+        self._conn.execute("delete from agent_runs where agent_id = ?", (agent_id,))
+        self._conn.execute("delete from agent_jobs where agent_id = ?", (agent_id,))
+        self._conn.execute("delete from agents where id = ?", (agent_id,))
+        self._conn.commit()
+
     def set_agent_thread_id(self, agent_id: str, thread_id: str) -> None:
         self._conn.execute(
             "update agents set thread_id = ?, updated_at = ? where id = ?",
@@ -603,6 +610,10 @@ class WebStateStore:
         )
         self._conn.commit()
         return self.get_job(job_id)
+
+    def delete_job(self, job_id: str) -> None:
+        self._conn.execute("delete from agent_jobs where id = ?", (job_id,))
+        self._conn.commit()
 
     def set_job_run_state(self, job_id: str, *, last_run_at: str, next_run_at: str | None) -> None:
         self._conn.execute(

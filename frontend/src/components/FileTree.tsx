@@ -5,6 +5,13 @@ import type { FileActivityRecord, TreeNode, WatchedAgentInfo } from '../types'
 /*  Props                                                              */
 /* ------------------------------------------------------------------ */
 
+interface ContextMenuState {
+  x: number
+  y: number
+  path: string
+  kind: 'file' | 'dir'
+}
+
 interface FileTreeProps {
   nodes: TreeNode[]
   selectedPath: string
@@ -12,6 +19,9 @@ interface FileTreeProps {
   watchedFolders: Record<string, WatchedAgentInfo[]>
   onSelect: (path: string) => void
   onNewNote?: (parentPath: string) => void
+  onNewFolder?: (parentPath: string) => void
+  onDelete?: (path: string) => void
+  onRename?: (path: string, kind: 'file' | 'dir') => void
 }
 
 /* ------------------------------------------------------------------ */
@@ -79,10 +89,11 @@ interface FolderNodeProps {
   onToggle: (path: string) => void
   onSelect: (path: string) => void
   onNewNote?: (parentPath: string) => void
+  onContextMenu?: (e: React.MouseEvent, path: string, kind: 'file' | 'dir') => void
 }
 
 function FolderNode({
-  node, depth, selectedPath, recentActivity, watchedFolders, expandedPaths, onToggle, onSelect, onNewNote,
+  node, depth, selectedPath, recentActivity, watchedFolders, expandedPaths, onToggle, onSelect, onNewNote, onContextMenu,
 }: FolderNodeProps) {
   const isOpen = expandedPaths.has(node.path)
   const watchers = watchedFolders[node.path] ?? []
@@ -103,6 +114,7 @@ function FolderNode({
         className={`tree-folder-btn ${isOpen ? 'tree-folder-open' : ''} ${watchers.length > 0 ? 'tree-folder-watched' : ''}`}
         style={{ paddingLeft: depth * 16 + 6 }}
         onClick={() => onToggle(node.path)}
+        onContextMenu={(e) => onContextMenu?.(e, node.path, 'dir')}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
@@ -144,12 +156,14 @@ function FolderNode({
                 node={child} depth={depth + 1} selectedPath={selectedPath}
                 recentActivity={recentActivity} watchedFolders={watchedFolders}
                 expandedPaths={expandedPaths} onToggle={onToggle} onSelect={onSelect} onNewNote={onNewNote}
+                onContextMenu={onContextMenu}
               />
             ) : (
               <FileNode
                 key={child.path || `${node.path}/${child.name}`}
                 node={child} depth={depth + 1} selectedPath={selectedPath}
                 activity={recentActivity[child.path]} onSelect={onSelect}
+                onContextMenu={onContextMenu}
               />
             ),
           )}
@@ -169,9 +183,10 @@ interface FileNodeProps {
   selectedPath: string
   activity?: FileActivityRecord
   onSelect: (path: string) => void
+  onContextMenu?: (e: React.MouseEvent, path: string, kind: 'file' | 'dir') => void
 }
 
-function FileNode({ node, depth, selectedPath, activity, onSelect }: FileNodeProps) {
+function FileNode({ node, depth, selectedPath, activity, onSelect, onContextMenu }: FileNodeProps) {
   const isActive = node.path === selectedPath
   const ref = useRef<HTMLButtonElement>(null)
 
@@ -186,6 +201,7 @@ function FileNode({ node, depth, selectedPath, activity, onSelect }: FileNodePro
       className={`tree-file ${isActive ? 'tree-file-active' : ''}`}
       style={{ paddingLeft: depth * 16 + 6 }}
       onClick={() => onSelect(node.path)}
+      onContextMenu={(e) => onContextMenu?.(e, node.path, 'file')}
     >
       {depth > 0 && (
         <div className="tree-indent-guides" style={{ width: depth * 16 }}>
@@ -212,7 +228,7 @@ function FileNode({ node, depth, selectedPath, activity, onSelect }: FileNodePro
 /*  Root component                                                     */
 /* ------------------------------------------------------------------ */
 
-export function FileTree({ nodes, selectedPath, recentActivity, watchedFolders, onSelect, onNewNote }: FileTreeProps) {
+export function FileTree({ nodes, selectedPath, recentActivity, watchedFolders, onSelect, onNewNote, onNewFolder, onDelete, onRename }: FileTreeProps) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
     const paths = new Set<string>()
     function walk(list: TreeNode[]) {
@@ -223,6 +239,9 @@ export function FileTree({ nodes, selectedPath, recentActivity, watchedFolders, 
     walk(nodes)
     return paths
   })
+
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const effectiveExpandedPaths = useMemo(() => {
     if (!selectedPath) return expandedPaths
@@ -244,6 +263,26 @@ export function FileTree({ nodes, selectedPath, recentActivity, watchedFolders, 
 
   const collapseAll = useCallback(() => setExpandedPaths(new Set()), [])
 
+  const handleContextMenu = useCallback((e: React.MouseEvent, path: string, kind: 'file' | 'dir') => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, path, kind })
+  }, [])
+
+  // Close context menu on outside click or escape
+  useEffect(() => {
+    if (!contextMenu) return
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setContextMenu(null)
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setContextMenu(null)
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKey)
+    return () => { document.removeEventListener('mousedown', handleClick); document.removeEventListener('keydown', handleKey) }
+  }, [contextMenu])
+
   if (!nodes.length) {
     return (
       <div className="tree-empty-state">
@@ -256,6 +295,9 @@ export function FileTree({ nodes, selectedPath, recentActivity, watchedFolders, 
       </div>
     )
   }
+
+  const parentOfCtx = contextMenu ? contextMenu.path.split('/').slice(0, -1).join('/') : ''
+  const folderForCtx = contextMenu?.kind === 'dir' ? contextMenu.path : parentOfCtx
 
   return (
     <div className="tree-root" role="tree">
@@ -272,11 +314,35 @@ export function FileTree({ nodes, selectedPath, recentActivity, watchedFolders, 
             key={node.path || node.name} node={node} depth={0} selectedPath={selectedPath}
             recentActivity={recentActivity} watchedFolders={watchedFolders}
             expandedPaths={effectiveExpandedPaths} onToggle={handleToggle} onSelect={onSelect} onNewNote={onNewNote}
+            onContextMenu={handleContextMenu}
           />
         ) : (
-          <FileNode key={node.path || node.name} node={node} depth={0} selectedPath={selectedPath} activity={recentActivity[node.path]} onSelect={onSelect} />
+          <FileNode key={node.path || node.name} node={node} depth={0} selectedPath={selectedPath} activity={recentActivity[node.path]} onSelect={onSelect} onContextMenu={handleContextMenu} />
         ),
       )}
+
+      {/* Context menu */}
+      {contextMenu ? (
+        <div
+          ref={menuRef}
+          className="tree-context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          <button type="button" onClick={() => { setContextMenu(null); onRename?.(contextMenu.path, contextMenu.kind) }}>
+            Rename
+          </button>
+          <button type="button" onClick={() => { setContextMenu(null); onNewNote?.(folderForCtx) }}>
+            New note
+          </button>
+          <button type="button" onClick={() => { setContextMenu(null); onNewFolder?.(folderForCtx) }}>
+            New folder
+          </button>
+          <div className="tree-context-divider" />
+          <button type="button" className="tree-context-danger" onClick={() => { setContextMenu(null); onDelete?.(contextMenu.path) }}>
+            Delete
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }
